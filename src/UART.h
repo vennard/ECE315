@@ -24,7 +24,7 @@
 #define UART6 0x40012000
 #define UART7 0x40013000
 
-#define	_8BITS		0x3	
+#define	_8BITS		0x3
 #define	ENABLED		1
 #define	DISABLED	0
 
@@ -51,47 +51,47 @@
 #define EN_TX_FIFO		1
 
 typedef struct {
-  volatile uint32_t    Data;                    // + 0x000
-  volatile uint32_t    RxStatus;                // + 0x004
-  volatile uint32_t    Unused0[4];    			
-  volatile uint32_t    Flag;                    // + 0x018
-  volatile uint32_t    Unused1;  				
-  volatile uint32_t    IrDALowPower;            // + 0x020
-  volatile uint32_t    IntegerBaudRateDiv;      // + 0x024
-  volatile uint32_t    FracBaudRateDiv;         // + 0x028
-  volatile uint32_t    LineControl;             // + 0x02C
-  volatile uint32_t    UARTControl;             // + 0x030
-  volatile uint32_t    IntFIFOLevelSel;         // + 0x034
-  volatile uint32_t    IntMask;                 // + 0x038 
-  volatile uint32_t    RawIntStatus;            // + 0x03C
-  volatile uint32_t    MaskedIntStatus;         // + 0x040
-  volatile uint32_t    IntClear;                // + 0x044
+	volatile uint32_t Data;	// + 0x000
+	volatile uint32_t RxStatus;	// + 0x004
+	volatile uint32_t Unused0[4];
+	volatile uint32_t Flag;	// + 0x018
+	volatile uint32_t Unused1;
+	volatile uint32_t IrDALowPower;	// + 0x020
+	volatile uint32_t IntegerBaudRateDiv;	// + 0x024
+	volatile uint32_t FracBaudRateDiv;	// + 0x028
+	volatile uint32_t LineControl;	// + 0x02C
+	volatile uint32_t UARTControl;	// + 0x030
+	volatile uint32_t IntFIFOLevelSel;	// + 0x034
+	volatile uint32_t IntMask;	// + 0x038 
+	volatile uint32_t RawIntStatus;	// + 0x03C
+	volatile uint32_t MaskedIntStatus;	// + 0x040
+	volatile uint32_t IntClear;	// + 0x044
 } UART_PERIPH;
- 
+
 /*
   Todo: Get the Clk val & Baud rate
   and calculate the baud rate register's
   values inside the init function.
 */
 typedef struct {
-  uint8_t     UartEn;						// Enable/Disable	   
-  uint8_t     UARTRxEn;						// Enable/Disable
-  uint8_t     UARTTxEn;						// Enable/Disable
-  uint8_t     WordLen;
-  uint32_t	  BaudRate;
-  uint8_t     FifoEn;						// Enable/Disable
-  uint8_t     _2StopEn;						// Enable/Disable
-  uint8_t     ParityEn;						// Enable/Disable
-  uint8_t     EvenParityEn;					// Enable/Disable
-  uint8_t     HighSpeedEn;					// Enable/Disable
-  uint8_t     RxIntFIFO;
-  uint8_t     TxIntFIFO; 
-  uint8_t     RxIntMaskEn;					// Enable/Disable
-  uint8_t     TxIntMaskEn;					// Enable/Disable
-  uint8_t     RxTimeOutIntMaskEn;			// Enable/Disable
-  uint8_t     OvrrIntMaskEn;				// Enable/Disable
-  uint8_t     ParityErrIntMaskEn;			// Enable/Disable
-  uint8_t     FramingErrIntMaskEn;			// Enable/Disable
+	uint8_t UartEn;		// Enable/Disable          
+	uint8_t UARTRxEn;	// Enable/Disable
+	uint8_t UARTTxEn;	// Enable/Disable
+	uint8_t WordLen;
+	uint32_t BaudRate;
+	uint8_t FifoEn;		// Enable/Disable
+	uint8_t _2StopEn;	// Enable/Disable
+	uint8_t ParityEn;	// Enable/Disable
+	uint8_t EvenParityEn;	// Enable/Disable
+	uint8_t HighSpeedEn;	// Enable/Disable
+	uint8_t RxIntFIFO;
+	uint8_t TxIntFIFO;
+	uint8_t RxIntMaskEn;	// Enable/Disable
+	uint8_t TxIntMaskEn;	// Enable/Disable
+	uint8_t RxTimeOutIntMaskEn;	// Enable/Disable
+	uint8_t OvrrIntMaskEn;	// Enable/Disable
+	uint8_t ParityErrIntMaskEn;	// Enable/Disable
+	uint8_t FramingErrIntMaskEn;	// Enable/Disable
 } UART_CONFIG;
 
 
