@@ -17,33 +17,56 @@
 #define PORTE   0x40024000
 #define PORTF   0x40025000
 
-#define OVERLAP 15
-
-#define CENTER 5
-
 //*****************************************************************************
 // Global Variables
 //*****************************************************************************
-int xranges[] = { 99999 };
+struct jsrange {
+	int bot;
+	int top;
+} yranges[] = {
+	{0, 0},	// Rev 5
+	{0, 0},	// Rev 4
+	{0, 0}, // Rev 3
+	{0, 0},	// Rev 2
+	{0, 0},	// Rev 1
+	{2048 - 20, 2048 + 20}, // Stop
+	{0, 0}, // Fwd 1
+	{0, 0}, // Fwd 2
+	{0, 0}, // Fwd 3
+	{0, 0}, // Fwd 4
+	{0, 4096} // Fwd 5
+};
 
-int yranges[] = { 372.36,	// rev 5
-	744.72,			// rev 4
-	1117.09,		// rev 3
-	1489.45,		// rev 2
-	1861.81,		// rev 1
-	2234.18,		// off
-	2606.54,		// fwd 1
-	2978.90,		// fwd 2
-	3351.27,		// fwd 3
-	3723.63,		// fwd 4
-	4096.0			// fwd 5
+/*int motorspeed[] = {
+	-100,
+	-80,
+	-60,
+	-40,
+	-20,
+	0,
+	20,
+	40,
+	60,
+	80,
+	100
+};*/
+
+int motorspeed[] = {
+	-100,
+	-0,
+	-0,
+	-0,
+	-0,
+	0,
+	0,
+	0,
+	0,
+	0,
+	100
 };
 
 
-/*int pwm[] = {
-	
-};*/
-int xpos = 0, ypos = 0, bs = 0;
+int xpos = 5, ypos = 5, bs = 1;
 
 //*****************************************************************************
 // External Functions
@@ -62,7 +85,12 @@ void initADC(void)
 	for (delay = 10; delay--;);
 	SYSCTL_RCGC0_R |= SYSCTL_RCGC0_ADC0;	// Activate ADC0
 	SYSCTL_RCGC0_R &= ~SYSCTL_RCGC0_ADC0SPD_M;	// set ADC0 to default 125k
-	ADC0_SSPRI_R = ADC_SSPRI_SS3_1ST | ADC_SSPRI_SS2_2ND | ADC_SSPRI_SS1_3RD | ADC_SSPRI_SS0_4TH;	// Sequence 3 is highest priority
+	// Sequence 3 is highest priority
+	ADC0_SSPRI_R =
+	    ADC_SSPRI_SS3_1ST |
+	    ADC_SSPRI_SS2_2ND |
+	    ADC_SSPRI_SS1_3RD |
+	    ADC_SSPRI_SS0_4TH;
 	ADC0_IM_R = 0;		// Don't send any interrupts
 	ADC0_ACTSS_R &= ~ADC_ACTSS_ASEN3;	// Disable sample sequencer 3
 	ADC0_EMUX_R &= ~ADC_EMUX_EM3_M;	// Use default PROCESSOR trigger
@@ -96,23 +124,27 @@ void initSYSTICK(uint32_t count)
 void SYSTICKIntHandler(void)
 {
 	static int pwm_phase = 0;
+	int s;
 	pwm_phase++;
 	pwm_phase %= 100;
-	if (ypos > 1) {
+	
+	s = motorspeed[ypos];
+	if (s < 0) {
 		GPIO_PORTF_DATA_R &= ~PF1_MOTOR_0_DIR;
-		GPIO_PORTF_DATA_R |= PF2_MOTOR_0_EN;
 		GPIO_PORTF_DATA_R &= ~PF3_MOTOR_1_DIR;
-		GPIO_PORTF_DATA_R |= PF4_MOTOR_1_EN;
+		s = -s;
 	} else {
 		GPIO_PORTF_DATA_R |= PF1_MOTOR_0_DIR;
-		GPIO_PORTF_DATA_R |= PF2_MOTOR_0_EN;
 		GPIO_PORTF_DATA_R |= PF3_MOTOR_1_DIR;
-		GPIO_PORTF_DATA_R |= PF4_MOTOR_1_EN;
 	}
 
-	// GPIO_PORTF_DATA_R |= PF3_MOTOR_1_DIR;
-	// GPIO_PORTF_DATA_R |= PF4_MOTOR_1_EN;
-	uartTxPoll(UART0, "=\n\r");
+	if (pwm_phase > s) {
+		GPIO_PORTF_DATA_R &= ~PF2_MOTOR_0_EN;
+		GPIO_PORTF_DATA_R &= ~PF4_MOTOR_1_EN;
+	} else {
+		GPIO_PORTF_DATA_R |= PF2_MOTOR_0_EN;
+		GPIO_PORTF_DATA_R |= PF4_MOTOR_1_EN;
+	}
 }
 
 
@@ -141,13 +173,14 @@ int main(void)
 	while (1) {
 		t = PB1_PS2_BUTTON & GPIO_PORTB_DATA_R ? 1 : 0;
 		if (t != bs) {
-			uartTxPoll(UART0,
-				   t ? "B: ON -> OFF\n\r" :
+			uartTxPoll(UART0, t ?
+				   "B: ON -> OFF\n\r" :
 				   "B: OFF -> ON\n\r");
 			bs = t;
 		}
+		
 		t = readADC(A0C10_XPOS_IN);
-		if (xpos != 0 && t < xranges[xpos - 1] - OVERLAP) {
+		/*if (xpos != 0 && t < xranges[xpos - 1] - OVERLAP) {
 			xpos--;
 			sprintf(str, "X: moved up to %x\n\r", xpos);
 			uartTxPoll(UART0, str);
@@ -155,15 +188,16 @@ int main(void)
 			xpos++;
 			sprintf(str, "X: moved down to %x\n\r", xpos);
 			uartTxPoll(UART0, str);
-		}
+		}*/
+		
 		t = readADC(A0C11_YPOS_IN);
-		if (ypos != 0 && t < yranges[ypos - 1] - OVERLAP) {
+		if (t < yranges[ypos].bot) {
 			ypos--;
-			sprintf(str, "Y: moved left to %x\n\r", ypos);
+			sprintf(str, "Y: moved left to %x (ADC: %d)\n\r", ypos, t);
 			uartTxPoll(UART0, str);
-		} else if (t > yranges[ypos]) {
+		} else if (t > yranges[ypos].top) {
 			ypos++;
-			sprintf(str, "Y: moved right to %x\n\r", ypos);
+			sprintf(str, "Y: moved right to %x (ADC: %d)\n\r", ypos, t);
 			uartTxPoll(UART0, str);
 		}
 	}
