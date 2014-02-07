@@ -23,21 +23,23 @@
 struct jsrange {
 	int bot;
 	int top;
+	//NOTE: Top and Bottom of joystick motion is stuck at max value 
+	//(ie we cannot get response past 70% of controller forward motion)
 } yranges[] = {
-	{0, 0},	// Rev 5
-	{0, 0},	// Rev 4
-	{0, 0}, // Rev 3
-	{0, 0},	// Rev 2
-	{0, 0},	// Rev 1
-	{2048 - 20, 2048 + 20}, // Stop
-	{0, 0}, // Fwd 1
-	{0, 0}, // Fwd 2
-	{0, 0}, // Fwd 3
-	{0, 0}, // Fwd 4
-	{0, 4096} // Fwd 5
+	{0, 20},	// Rev 5 -- When at full reverse position fluxuates up to 20
+	{3, 500},	// Rev 4 -- Increase very quickly
+	{420, 1100}, // Rev 3
+	{980, 1450},	// Rev 2
+	{1400, 2028},	// Rev 1
+	{2000, 2168}, // Stop
+	{2130, 2650}, // Fwd 1
+	{2550, 3200}, // Fwd 2
+	{3050, 3500}, // Fwd 3
+	{3600, 4094}, // Fwd 4
+	{4093, 4096} // Fwd 5
 };
 
-/*int motorspeed[] = {
+int motorspeed[] = {
 	-100,
 	-80,
 	-60,
@@ -49,21 +51,21 @@ struct jsrange {
 	60,
 	80,
 	100
-};*/
-
-int motorspeed[] = {
-	-100,
-	-0,
-	-0,
-	-0,
-	-0,
-	0,
-	0,
-	0,
-	0,
-	0,
-	100
 };
+
+/*int motorspeed[] = {
+	-0,
+	-0,
+	-0,
+	-0,
+	-0,
+	0,
+	0,
+	0,
+	0,
+	0,
+	0
+};*/
 
 
 int xpos = 5, ypos = 5, bs = 1;
@@ -131,11 +133,12 @@ void SYSTICKIntHandler(void)
 	s = motorspeed[ypos];
 	if (s < 0) {
 		GPIO_PORTF_DATA_R &= ~PF1_MOTOR_0_DIR;
-		GPIO_PORTF_DATA_R &= ~PF3_MOTOR_1_DIR;
+		GPIO_PORTF_DATA_R |= PF3_MOTOR_1_DIR;
 		s = -s;
 	} else {
 		GPIO_PORTF_DATA_R |= PF1_MOTOR_0_DIR;
-		GPIO_PORTF_DATA_R |= PF3_MOTOR_1_DIR;
+		GPIO_PORTF_DATA_R &= ~PF3_MOTOR_1_DIR;
+		
 	}
 
 	if (pwm_phase > s) {
@@ -155,7 +158,7 @@ int main(void)
 	volatile unsigned long delay;
 	char str[255];
 	int t;
-
+	int c = 0;
 	// Initialize the PLLs so the the main CPU frequency is 80MHz
 	PLL_Init();
 	initializeGPIOPort(PORTA, &portA_config);
@@ -170,6 +173,8 @@ int main(void)
 	uartTxPoll(UART0, "=============================\n\r");
 	uartTxPoll(UART0, "ECE315 Lab1  \n\r");
 	uartTxPoll(UART0, "=============================\n\r");
+	
+	
 	while (1) {
 		t = PB1_PS2_BUTTON & GPIO_PORTB_DATA_R ? 1 : 0;
 		if (t != bs) {
@@ -191,14 +196,25 @@ int main(void)
 		}*/
 		
 		t = readADC(A0C11_YPOS_IN);
+		c++;
+		if (c > 30000) {
+			sprintf(str, "READ IN VALUE -> %d",t);
+			uartTxPoll(UART0, str);
+			sprintf(str, " --- Speed = %d\n\r",ypos);
+			uartTxPoll(UART0, str);
+			c=0;
+		}
+		
+		
+		
 		if (t < yranges[ypos].bot) {
 			ypos--;
-			sprintf(str, "Y: moved left to %x (ADC: %d)\n\r", ypos, t);
-			uartTxPoll(UART0, str);
+		//	sprintf(str, "Y: moved left to %x (ADC: %d)\n\r", ypos, t);
+		//	uartTxPoll(UART0, str);
 		} else if (t > yranges[ypos].top) {
 			ypos++;
-			sprintf(str, "Y: moved right to %x (ADC: %d)\n\r", ypos, t);
-			uartTxPoll(UART0, str);
+		//	sprintf(str, "Y: moved right to %x (ADC: %d)\n\r", ypos, t);
+		//	uartTxPoll(UART0, str);
 		}
 	}
 }
