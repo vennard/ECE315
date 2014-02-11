@@ -1,0 +1,12 @@
+ECE315 LAB 2
+Robert Buchanan & John Vennard
+
+1. Located SysTick in the Startup.s file and renamed it SysTickIntHandler.
+2. Used the processor clock frequency (80MHz) and the goal interrupt frequency (7kHz) to calculate the timer count amount (11428).
+3. Created initSysTick function to initialize the interrupt timer - by disabling, set reload register and then clear count. 
+4. Created table to split the axis input into 5 quandrants and setup a threshold for overlap to avoid quick switching at transitions.
+5. Debounced pushed button input.
+6. Created interrupt handler for SysTick - increment counter and mod by 100 initially to get full PWM signal at 7Hz.
+7. Add both functions to the main call and perform quick test to verify that the interrupt handler is getting reached.
+8. Looking at the datasheet and schematic to determine the pins of both of the motors, then definiing them in our board_config.h file for easy access later.
+9.  
