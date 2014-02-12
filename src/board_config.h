@@ -23,16 +23,22 @@
 #define PIN_6     (1 << 6)
 #define PIN_7     (1 << 7)
 
-#define A0C10_XPOS_IN 10
-#define A0C11_YPOS_IN 11
+#define A0C10_YPOS_IN 10
+#define A0C11_XPOS_IN 11
 
 #define PA0_U0_RX  PIN_0
 #define PA1_U0_TX  PIN_1
 
 #define PB1_PS2_BUTTON PIN_1
 
-#define PB4_XPOS_IN     PIN_4
-#define PB5_YPOS_IN     PIN_5
+#define PB4_YPOS_IN     PIN_4
+#define PB5_XPOS_IN     PIN_5
+
+#define PB2_MOTOR_0_SA	PIN_2
+#define PB3_MOTOR_0_SB	PIN_3
+
+#define PB6_MOTOR_1_SA	PIN_6
+#define PB7_MOTOR_1_SB	PIN_7
 
 #define PF1_MOTOR_0_DIR PIN_1
 #define PF2_MOTOR_0_EN  PIN_2
@@ -76,8 +82,8 @@ GPIO_CONFIG portA_config = {
  * PORT B
  *****************************************************************************/
 GPIO_CONFIG portB_config = {
-	PB1_PS2_BUTTON,		// DigitalEnable
-	PB1_PS2_BUTTON | PB4_XPOS_IN | PB5_YPOS_IN,	// Input
+	PB1_PS2_BUTTON | PB2_MOTOR_0_SA | PB3_MOTOR_0_SB | PB6_MOTOR_1_SA | PB7_MOTOR_1_SB,		// DigitalEnable
+	PB1_PS2_BUTTON | PB2_MOTOR_0_SA | PB3_MOTOR_0_SB | PB4_YPOS_IN | PB5_XPOS_IN | PB6_MOTOR_1_SA | PB7_MOTOR_1_SB,	// Input
 	NONE,			// Output
 	DISABLED,		// InterruptEnable
 	DISABLED,		// InterruptLevel
@@ -87,8 +93,8 @@ GPIO_CONFIG portB_config = {
 	DISABLED,		// InterruptEdgeBoth
 	DISABLED,		// PullDown
 	DISABLED,		// PullUp
-	PB4_XPOS_IN | PB5_YPOS_IN,	// AnalogEnable
-	PB4_XPOS_IN | PB5_YPOS_IN,	// AlternateFunctionEnable
+	PB4_YPOS_IN | PB5_XPOS_IN,	// AnalogEnable
+	PB4_YPOS_IN | PB5_XPOS_IN,	// AlternateFunctionEnable
 	PORT_CONTROL_DEFAULT	// PortControl
 };
 
