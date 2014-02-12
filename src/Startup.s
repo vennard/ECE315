@@ -80,6 +80,7 @@ __heap_limit
 ;******************************************************************************
         EXTERN  UARTIntHandler
 		EXTERN	SYSTICKIntHandler
+		EXTERN 	TIMER0AIntHandler
 
 ;******************************************************************************
 ;
@@ -123,7 +124,7 @@ __Vectors
         DCD     IntDefaultHandler           ; ADC Sequence 2			32	
         DCD     IntDefaultHandler           ; ADC Sequence 3			33
         DCD     IntDefaultHandler           ; Watchdog timer			34
-        DCD     IntDefaultHandler           ; Timer 0 subtimer A		35
+        DCD     TIMER0AIntHandler           ; Timer 0 subtimer A		35
         DCD     IntDefaultHandler           ; Timer 0 subtimer B		36
         DCD     IntDefaultHandler           ; Timer 1 subtimer A		37
         DCD     IntDefaultHandler           ; Timer 1 subtimer B		38

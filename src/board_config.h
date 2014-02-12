@@ -23,6 +23,13 @@
 #define PIN_6     (1 << 6)
 #define PIN_7     (1 << 7)
 
+
+#define PB0_TRIG_0	PIN_0
+#define PE1_ECHO_0	PIN_1
+
+#define PE2_TRIG_1	PIN_2
+#define PE3_ECHO_1	PIN_3
+
 #define A0C10_YPOS_IN 10
 #define A0C11_XPOS_IN 11
 
@@ -82,9 +89,9 @@ GPIO_CONFIG portA_config = {
  * PORT B
  *****************************************************************************/
 GPIO_CONFIG portB_config = {
-	PB1_PS2_BUTTON | PB2_MOTOR_0_SA | PB3_MOTOR_0_SB | PB6_MOTOR_1_SA | PB7_MOTOR_1_SB,		// DigitalEnable
+	PB0_TRIG_0 | PB1_PS2_BUTTON | PB2_MOTOR_0_SA | PB3_MOTOR_0_SB | PB6_MOTOR_1_SA | PB7_MOTOR_1_SB,		// DigitalEnable
 	PB1_PS2_BUTTON | PB2_MOTOR_0_SA | PB3_MOTOR_0_SB | PB4_YPOS_IN | PB5_XPOS_IN | PB6_MOTOR_1_SA | PB7_MOTOR_1_SB,	// Input
-	NONE,			// Output
+	PB0_TRIG_0,			// Output
 	DISABLED,		// InterruptEnable
 	DISABLED,		// InterruptLevel
 	DISABLED,		// InterruptLevelActiveHigh
@@ -143,9 +150,9 @@ GPIO_CONFIG portD_config = {
  * PORT E
  *****************************************************************************/
 GPIO_CONFIG portE_config = {
-	NONE,			// DigitalEnable
-	NONE,			// Input
-	NONE,			// Output
+	PE1_ECHO_0 | PE2_TRIG_1 | PE3_ECHO_1,			// DigitalEnable
+	PE1_ECHO_0 | PE3_ECHO_1,			// Input
+	PE2_TRIG_1,			// Output
 	DISABLED,		// InterruptEnable
 	DISABLED,		// InterruptLevel
 	DISABLED,		// InterruptLevelActiveHigh

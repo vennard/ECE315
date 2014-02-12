@@ -142,6 +142,38 @@ void SYSTICKIntHandler(void)
 		GPIO_PORTF_DATA_R |= PF4_MOTOR_1_EN;
 	}
 }
+void initTIMER0A(uint32_t count)
+{
+	SYSCTL_RCGCTIMER_R |= SYSCTL_RCGCTIMER_R0;
+	TIMER0_CTL_R = 0; //disable
+	TIMER0_CFG_R = TIMER_CFG_32_BIT_TIMER; //32-bit timer
+	TIMER0_TAMR_R = TIMER_TAMR_TAMR_PERIOD | TIMER_TAMR_TACDIR; //Enables and sets to periodic
+	TIMER0_ICR_R = TIMER_ICR_TATOCINT;
+	TIMER0_IMR_R = TIMER_IMR_TATOIM;
+	TIMER0_TAILR_R = count - 1;
+	TIMER0_TAPR_R = 0;
+	TIMER0_CTL_R = TIMER_CTL_TAEN; //enable
+	NVIC_EN0_R = NVIC_EN0_INT19; //enable in nvic
+	
+}
+
+void TIMER0AIntHandler(void)
+{
+	TIMER0_ICR_R |= TIMER_ICR_TATOCINT;
+	//uartTxPoll(UART0, "#");
+	//GPIO_PORTB_DATA_R ^= PB0_TRIG_0;
+	if (jstick.press) 
+	{
+		jstick.press = 0;
+		GPIO_PORTB_DATA_R |= PB0_TRIG_0;
+		GPIO_PORTE_DATA_R |= PE2_TRIG_1;
+	}
+	else 
+	{
+		GPIO_PORTB_DATA_R &= ~PB0_TRIG_0;
+		GPIO_PORTE_DATA_R &= ~PE2_TRIG_1;
+	}
+}
 
 
 //*****************************************************************************
@@ -164,7 +196,8 @@ int main(void)
 	InitializeUART(UART0, &UART0_config);
 	
 	initADC();
-	initSYSTICK(11429);
+	initSYSTICK(11429);   //5kHz
+	initTIMER0A(4000000); //20Hz
 	
 	uartTxPoll(UART0, "=============================\n\r");
 	uartTxPoll(UART0, "ECE315 Lab1  \n\r");
@@ -172,14 +205,18 @@ int main(void)
 	
 	
 	while (1) {
+		//
+		
 		/* this "works", but should be rethought */
 		debounce = (debounce << 1) | (GPIO_PORTB_DATA_R & PB1_PS2_BUTTON ? 1 : 0);
 		if (debounce == 0x8000) {
 			jstick.press = 1;
 			uartTxPoll(UART0, "B: PRESSED\n\r");
+			
 		} else if (debounce == 0x7FFF) {
 			jstick.release = 1;
 			uartTxPoll(UART0, "B: RELEASED\n\r");
+		
 		}
 		
 		t = readADC(A0C10_YPOS_IN);
