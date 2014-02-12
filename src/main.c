@@ -25,8 +25,8 @@ struct jsrange {
 	int top;
 	//NOTE: Top and Bottom of joystick motion is stuck at max value 
 	//(ie we cannot get response past 70% of controller forward motion)
-} yranges[] = {
-	{0, 20},	// Rev 5 -- When at full reverse position fluxuates up to 20
+} jsranges[] = {
+	{0, 30},	// Rev 5 -- When at full reverse position fluxuates up to 20
 	{3, 500},	// Rev 4 -- Increase very quickly
 	{420, 1100}, // Rev 3
 	{980, 1450},	// Rev 2
@@ -39,7 +39,7 @@ struct jsrange {
 	{4093, 4096} // Fwd 5
 };
 
-int motorspeed[] = {
+int motorspeeds[] = {
 	-100,
 	-80,
 	-60,
@@ -53,22 +53,14 @@ int motorspeed[] = {
 	100
 };
 
-/*int motorspeed[] = {
-	-0,
-	-0,
-	-0,
-	-0,
-	-0,
-	0,
-	0,
-	0,
-	0,
-	0,
-	0
-};*/
+volatile int MotorDutyCycle = 0;
 
-
-int xpos = 5, ypos = 5, bs = 1;
+volatile struct joystick {
+	int x;
+	int y;
+	int press;
+	int release;
+} jstick = {5, 5, 0, 0};
 
 //*****************************************************************************
 // External Functions
@@ -125,23 +117,24 @@ void initSYSTICK(uint32_t count)
 
 void SYSTICKIntHandler(void)
 {
-	static int pwm_phase = 0;
 	int s;
-	pwm_phase++;
-	pwm_phase %= 100;
 	
-	s = motorspeed[ypos];
+	MotorDutyCycle++;
+	MotorDutyCycle %= 100;
+	
+	s = motorspeeds[jstick.y];
+	// backwards speeds
 	if (s < 0) {
 		GPIO_PORTF_DATA_R &= ~PF1_MOTOR_0_DIR;
 		GPIO_PORTF_DATA_R |= PF3_MOTOR_1_DIR;
 		s = -s;
+	// forwards speeds
 	} else {
 		GPIO_PORTF_DATA_R |= PF1_MOTOR_0_DIR;
 		GPIO_PORTF_DATA_R &= ~PF3_MOTOR_1_DIR;
-		
 	}
 
-	if (pwm_phase > s) {
+	if (MotorDutyCycle >= s) {
 		GPIO_PORTF_DATA_R &= ~PF2_MOTOR_0_EN;
 		GPIO_PORTF_DATA_R &= ~PF4_MOTOR_1_EN;
 	} else {
@@ -158,7 +151,8 @@ int main(void)
 	volatile unsigned long delay;
 	char str[255];
 	int t;
-	int c = 0;
+	static uint16_t debounce = 0;
+	
 	// Initialize the PLLs so the the main CPU frequency is 80MHz
 	PLL_Init();
 	initializeGPIOPort(PORTA, &portA_config);
@@ -168,53 +162,54 @@ int main(void)
 	initializeGPIOPort(PORTE, &portE_config);
 	initializeGPIOPort(PORTF, &portF_config);
 	InitializeUART(UART0, &UART0_config);
+	
 	initADC();
 	initSYSTICK(11429);
+	
 	uartTxPoll(UART0, "=============================\n\r");
 	uartTxPoll(UART0, "ECE315 Lab1  \n\r");
 	uartTxPoll(UART0, "=============================\n\r");
 	
 	
 	while (1) {
-		t = PB1_PS2_BUTTON & GPIO_PORTB_DATA_R ? 1 : 0;
-		if (t != bs) {
-			uartTxPoll(UART0, t ?
-				   "B: ON -> OFF\n\r" :
-				   "B: OFF -> ON\n\r");
-			bs = t;
+		/* this "works", but should be rethought */
+		debounce = (debounce << 1) | (GPIO_PORTB_DATA_R & PB1_PS2_BUTTON ? 1 : 0);
+		if (debounce == 0x8000) {
+			jstick.press = 1;
+			uartTxPoll(UART0, "B: PRESSED\n\r");
+		} else if (debounce == 0x7FFF) {
+			jstick.release = 1;
+			uartTxPoll(UART0, "B: RELEASED\n\r");
 		}
 		
-		t = readADC(A0C10_XPOS_IN);
-		/*if (xpos != 0 && t < xranges[xpos - 1] - OVERLAP) {
-			xpos--;
-			sprintf(str, "X: moved up to %x\n\r", xpos);
-			uartTxPoll(UART0, str);
-		} else if (t > xranges[xpos]) {
-			xpos++;
-			sprintf(str, "X: moved down to %x\n\r", xpos);
-			uartTxPoll(UART0, str);
-		}*/
-		
-		t = readADC(A0C11_YPOS_IN);
-		c++;
+		t = readADC(A0C10_YPOS_IN);
+		/*c++;
 		if (c > 30000) {
 			sprintf(str, "READ IN VALUE -> %d",t);
 			uartTxPoll(UART0, str);
 			sprintf(str, " --- Speed = %d\n\r",ypos);
 			uartTxPoll(UART0, str);
 			c=0;
+		}*/
+		if (t < jsranges[jstick.y].bot) {
+			jstick.y--;
+			sprintf(str, "Y: moved left to %x (ADC: %d)\n\r", jstick.y, t);
+			uartTxPoll(UART0, str);
+		} else if (t > jsranges[jstick.y].top) {
+			jstick.y++;
+			sprintf(str, "Y: moved right to %x (ADC: %d)\n\r", jstick.y, t);
+			uartTxPoll(UART0, str);
 		}
 		
-		
-		
-		if (t < yranges[ypos].bot) {
-			ypos--;
-		//	sprintf(str, "Y: moved left to %x (ADC: %d)\n\r", ypos, t);
-		//	uartTxPoll(UART0, str);
-		} else if (t > yranges[ypos].top) {
-			ypos++;
-		//	sprintf(str, "Y: moved right to %x (ADC: %d)\n\r", ypos, t);
-		//	uartTxPoll(UART0, str);
+		t = readADC(A0C11_XPOS_IN);
+		if (t < jsranges[jstick.x].bot) {
+			jstick.x--;
+			sprintf(str, "X: moved left to %x (ADC: %d)\n\r", jstick.x, t);
+			uartTxPoll(UART0, str);
+		} else if (t > jsranges[jstick.x].top) {
+			jstick.x++;
+			sprintf(str, "X: moved right to %x (ADC: %d)\n\r", jstick.x, t);
+			uartTxPoll(UART0, str);
 		}
 	}
 }
