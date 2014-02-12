@@ -9,4 +9,13 @@ Robert Buchanan & John Vennard
 6. Created interrupt handler for SysTick - increment counter and mod by 100 initially to get full PWM signal at 7Hz.
 7. Add both functions to the main call and perform quick test to verify that the interrupt handler is getting reached.
 8. Looking at the datasheet and schematic to determine the pins of both of the motors, then definiing them in our board_config.h file for easy access later.
-9.  
+9. Tested the motors individually in both directions
+10. Found that one direction of one of the motor controllers didn't work
+11. Tried swapping the motors attached to the controllers and found the controller still didn't work.
+12. Continued work on different robot.
+13. Wrote up PWM code
+14. Made table for joystick values to generate stable responses
+15. Implemented button debouncing. Minor code cleanup
+16. Enabled the encoder pins on port B
+17. Took screen caps from oscilliscope of two speed in each direction. SA (top/yellow) SB (bottom/green)
+
