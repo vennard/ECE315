@@ -54,6 +54,9 @@ int motorspeeds[] = {
 };
 
 volatile int MotorDutyCycle = 0;
+int response_time = 0;
+int count = 0;
+int time_result = 0;
 
 volatile struct joystick {
 	int x;
@@ -162,17 +165,47 @@ void TIMER0AIntHandler(void)
 	TIMER0_ICR_R |= TIMER_ICR_TATOCINT;
 	//uartTxPoll(UART0, "#");
 	//GPIO_PORTB_DATA_R ^= PB0_TRIG_0;
+	//Send pulse at 20Hz
+	count++;
+	if (count == 50000) {
+		//Send short >10us pulse -- TODO
+		GPIO_PORTB_DATA_R |= PB0_TRIG_0;
+		time_result = 1;
+		response_time = 0;
+	}
+	if (count >= 50020) {
+	//if (count >= 51000) {
+		//End 10us pulse and start response timer
+		GPIO_PORTB_DATA_R &= ~PB0_TRIG_0;	
+		count = 0;
+	}
+	//Timing until ECHO signal STOPS (Falling Edge)
+	if (time_result == 1) {
+			response_time++;
+			response_time = 0;
+			time_result = 0;
+			//check for echo signal
+			//PE1_ECHO_0
+	}
+	/*
 	if (jstick.press) 
 	{
 		jstick.press = 0;
 		GPIO_PORTB_DATA_R |= PB0_TRIG_0;
-		GPIO_PORTE_DATA_R |= PE2_TRIG_1;
+		//Wait 10us
+		GPIO_PORTB_DATA_R &= ~PB0_TRIG_0;
+		//GPIO_PORTE_DATA_R |= PE2_TRIG_1;
 	}
 	else 
 	{
 		GPIO_PORTB_DATA_R &= ~PB0_TRIG_0;
-		GPIO_PORTE_DATA_R &= ~PE2_TRIG_1;
+		//GPIO_PORTE_DATA_R &= ~PE2_TRIG_1;
 	}
+	*/
+	//Calculate Distance
+	// distance (cm) = delay(uS) / 58 
+	
+	
 }
 
 
@@ -197,7 +230,8 @@ int main(void)
 	
 	initADC();
 	initSYSTICK(11429);   //5kHz
-	initTIMER0A(4000000); //20Hz
+	//initTIMER0A(4000000); //20Hz
+	initTIMER0A(80); //Interrupts every us
 	
 	uartTxPoll(UART0, "=============================\n\r");
 	uartTxPoll(UART0, "ECE315 Lab1  \n\r");
