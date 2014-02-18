@@ -81,6 +81,8 @@ __heap_limit
         EXTERN  UARTIntHandler
 		EXTERN	SYSTICKIntHandler
 		EXTERN 	TIMER0AIntHandler
+		EXTERN 	TIMER1AIntHandler
+		EXTERN 	PORTEIntHandler
 
 ;******************************************************************************
 ;
@@ -109,7 +111,7 @@ __Vectors
         DCD     IntDefaultHandler           ; GPIO Port B				17
         DCD     IntDefaultHandler           ; GPIO Port C				18
         DCD     IntDefaultHandler           ; GPIO Port D				19
-        DCD     IntDefaultHandler           ; GPIO Port E				20
+        DCD     PORTEIntHandler           ; GPIO Port E				20
         DCD     IntDefaultHandler              ; UART0 Rx and Tx			21
         DCD     IntDefaultHandler           ; UART1 Rx and Tx			22	
         DCD     IntDefaultHandler           ; SSI0 Rx and Tx			23		
@@ -126,7 +128,7 @@ __Vectors
         DCD     IntDefaultHandler           ; Watchdog timer			34
         DCD     TIMER0AIntHandler           ; Timer 0 subtimer A		35
         DCD     IntDefaultHandler           ; Timer 0 subtimer B		36
-        DCD     IntDefaultHandler           ; Timer 1 subtimer A		37
+        DCD     TIMER1AIntHandler           ; Timer 1 subtimer A		37
         DCD     IntDefaultHandler           ; Timer 1 subtimer B		38
         DCD     IntDefaultHandler           ; Timer 2 subtimer A		39
         DCD     IntDefaultHandler           ; Timer 2 subtimer B		40

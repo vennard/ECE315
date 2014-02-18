@@ -18,7 +18,7 @@
 #define PORTF   0x40025000
 
 //*****************************************************************************
-// Global Variables
+// TABLES
 //*****************************************************************************
 struct jsrange {
 	int bot;
@@ -53,10 +53,24 @@ int motorspeeds[] = {
 	100
 };
 
+
+//*****************************************************************************
+// GLOBALS
+//*****************************************************************************
+
 volatile int MotorDutyCycle = 0;
-int response_time = 0;
-int count = 0;
-int time_result = 0;
+
+volatile struct URFdata {
+	uint32_t s;
+	uint32_t e;
+	double avg;
+	uint32_t n;
+} urf0 = {0, 0, 0.0, 0}, urf1 = {0, 0, 0.0, 0};
+
+volatile struct IRdata {
+	double avg;
+	int n;
+} ir0 = {0.0, 0};
 
 volatile struct joystick {
 	int x;
@@ -73,6 +87,8 @@ extern bool InitializeUART(uint32_t base, UART_CONFIG * init);
 extern char uartRxPoll(uint32_t base);
 extern void uartTxPoll(uint32_t base, char *data);
 extern bool initializeGPIOPort(uint32_t base, GPIO_CONFIG * init);
+
+
 void initADC(void)
 {
 	uint32_t delay;
@@ -162,50 +178,84 @@ void initTIMER0A(uint32_t count)
 
 void TIMER0AIntHandler(void)
 {
-	TIMER0_ICR_R |= TIMER_ICR_TATOCINT;
-	//uartTxPoll(UART0, "#");
-	//GPIO_PORTB_DATA_R ^= PB0_TRIG_0;
-	//Send pulse at 20Hz
-	count++;
-	if (count == 50000) {
-		//Send short >10us pulse -- TODO
-		GPIO_PORTB_DATA_R |= PB0_TRIG_0;
-		time_result = 1;
-		response_time = 0;
-	}
-	if (count >= 50020) {
-	//if (count >= 51000) {
-		//End 10us pulse and start response timer
-		GPIO_PORTB_DATA_R &= ~PB0_TRIG_0;	
-		count = 0;
-	}
-	//Timing until ECHO signal STOPS (Falling Edge)
-	if (time_result == 1) {
-			response_time++;
-			response_time = 0;
-			time_result = 0;
-			//check for echo signal
-			//PE1_ECHO_0
-	}
-	/*
-	if (jstick.press) 
-	{
-		jstick.press = 0;
-		GPIO_PORTB_DATA_R |= PB0_TRIG_0;
-		//Wait 10us
+	static char isLo = 0;
+	char str[255];
+	
+	if (!isLo) {
+		if (urf0.s && urf0.e) {
+			//sprintf(str, "URF0: %d - %d = %d\n\r", urf0.e, urf0.s, urf0.e - urf0.s);
+			sprintf(str, "URF0: %d ticks = %d cm\n\r",
+				(urf0.e - urf0.s),
+				(urf0.e - urf0.s) * 2 * 100 / 340 / 8000
+			);
+			uartTxPoll(UART0, str);
+		}
+		
+		if (urf1.s && urf1.e) {
+			sprintf(str, "URF1: %d - %d = %d\n\r", urf1.e, urf1.s, urf1.e - urf1.s);
+			uartTxPoll(UART0, str);
+		}
+		urf0.s = urf0.e = urf1.s = urf1.e = 0;
+		
 		GPIO_PORTB_DATA_R &= ~PB0_TRIG_0;
-		//GPIO_PORTE_DATA_R |= PE2_TRIG_1;
+		GPIO_PORTE_DATA_R &= ~PE2_TRIG_1;
+	} else {
+		GPIO_PORTB_DATA_R |= PB0_TRIG_0;
+		GPIO_PORTE_DATA_R |= PE2_TRIG_1;
 	}
-	else 
-	{
-		GPIO_PORTB_DATA_R &= ~PB0_TRIG_0;
-		//GPIO_PORTE_DATA_R &= ~PE2_TRIG_1;
-	}
-	*/
+	isLo = !isLo;
+	
 	//Calculate Distance
 	// distance (cm) = delay(uS) / 58 
 	
+	TIMER0_ICR_R |= TIMER_ICR_TATOCINT;
+}
+
+void PORTEIntHandler(void)
+{
+	/* disable interrupts!! */
 	
+	if (GPIO_PORTE_RIS_R & PE1_ECHO_0) {
+		if (!urf0.s)
+			urf0.s = TIMER0_TAR_R;
+		else
+			urf0.e = TIMER0_TAR_R;
+	}
+	
+	if (GPIO_PORTE_RIS_R & PE3_ECHO_1) {
+		if (!urf1.s)
+			urf1.s = TIMER0_TAR_R;
+		else
+			urf1.e = TIMER0_TAR_R;
+	}
+	
+	GPIO_PORTE_ICR_R = ~0;
+}
+
+void initTIMER1A(uint32_t count)
+{
+	SYSCTL_RCGCTIMER_R |= SYSCTL_RCGCTIMER_R1; // enable clock
+	TIMER1_CTL_R = 0; // disable module
+	TIMER1_CFG_R = TIMER_CFG_32_BIT_TIMER; //32-bit timer
+	TIMER1_TAMR_R = TIMER_TAMR_TAMR_PERIOD | TIMER_TAMR_TACDIR; //Enables and sets to periodic
+	TIMER1_ICR_R = TIMER_ICR_TATOCINT;
+	TIMER1_IMR_R = TIMER_IMR_TATOIM;
+	TIMER1_TAILR_R = count - 1;
+	TIMER1_TAPR_R = 0;
+	TIMER1_CTL_R = TIMER_CTL_TAEN; // enable module
+	NVIC_EN0_R = NVIC_EN0_INT21; //enable in nvic
+}
+
+void TIMER1AIntHandler(void)
+{
+	uint16_t v;
+	char str[255];
+	
+	v = readADC(A0C3_RANGE_0_IN);
+	sprintf(str, "IR0: %d\n\r", v);
+	uartTxPoll(UART0, str);
+	
+	TIMER1_ICR_R |= TIMER_ICR_TATOCINT;
 }
 
 
@@ -230,8 +280,11 @@ int main(void)
 	
 	initADC();
 	initSYSTICK(11429);   //5kHz
-	//initTIMER0A(4000000); //20Hz
-	initTIMER0A(80); //Interrupts every us
+	initTIMER0A(40000000);
+	initTIMER1A(40000000);
+	
+	// EXTRA INIT FOR GPIOE interrupts
+	NVIC_EN0_R |= NVIC_EN0_INT4;
 	
 	uartTxPoll(UART0, "=============================\n\r");
 	uartTxPoll(UART0, "ECE315 Lab1  \n\r");
@@ -254,14 +307,6 @@ int main(void)
 		}
 		
 		t = readADC(A0C10_YPOS_IN);
-		/*c++;
-		if (c > 30000) {
-			sprintf(str, "READ IN VALUE -> %d",t);
-			uartTxPoll(UART0, str);
-			sprintf(str, " --- Speed = %d\n\r",ypos);
-			uartTxPoll(UART0, str);
-			c=0;
-		}*/
 		if (t < jsranges[jstick.y].bot) {
 			jstick.y--;
 			sprintf(str, "Y: moved left to %x (ADC: %d)\n\r", jstick.y, t);
