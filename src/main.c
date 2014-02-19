@@ -17,14 +17,17 @@
 #define PORTE   0x40024000
 #define PORTF   0x40025000
 
+#define NUM_SAMPLES 10
+#define REG_POW 33
+
 //*****************************************************************************
 // TABLES
 //*****************************************************************************
+//NOTE: Top and Bottom of joystick motion is stuck at max value 
+//(ie we cannot get response past 70% of controller forward motion)
 struct jsrange {
 	int bot;
 	int top;
-	//NOTE: Top and Bottom of joystick motion is stuck at max value 
-	//(ie we cannot get response past 70% of controller forward motion)
 } jsranges[] = {
 	{0, 30},	// Rev 5 -- When at full reverse position fluxuates up to 20
 	{3, 500},	// Rev 4 -- Increase very quickly
@@ -39,38 +42,32 @@ struct jsrange {
 	{4093, 4096} // Fwd 5
 };
 
-int motorspeeds[] = {
-	-100,
-	-80,
-	-60,
-	-40,
-	-20,
-	0,
-	20,
-	40,
-	60,
-	80,
-	100
+enum MotorDir {
+	MotorFwd = 0,
+	MotorRev = 1
 };
-
 
 //*****************************************************************************
 // GLOBALS
 //*****************************************************************************
+volatile struct MotorData {
+	uint32_t pow;
+	char dir;
 
-volatile int MotorDutyCycle = 0;
+	int32_t odo;
+	double rate;
+} motor0 = {REG_POW, MotorFwd, 0, 0}, motor1 = {REG_POW, MotorFwd, 0, 0};
 
 volatile struct URFdata {
 	uint32_t s;
 	uint32_t e;
-	double avg;
-	uint32_t n;
-} urf0 = {0, 0, 0.0, 0}, urf1 = {0, 0, 0.0, 0};
+	
+	uint32_t dist;
+} urf0 = {0, 0, 9999}, urf1 = {0, 0, 9999};
 
 volatile struct IRdata {
-	double avg;
-	int n;
-} ir0 = {0.0, 0};
+	uint32_t dist;
+} ir0 = {0};
 
 volatile struct joystick {
 	int x;
@@ -79,15 +76,166 @@ volatile struct joystick {
 	int release;
 } jstick = {5, 5, 0, 0};
 
+uint32_t systick_delay = 0;
+
 //*****************************************************************************
-// External Functions
+// LIBRARY FUNCTIONS
 //*****************************************************************************
 extern void PLL_Init(void);
 extern bool InitializeUART(uint32_t base, UART_CONFIG * init);
 extern char uartRxPoll(uint32_t base);
 extern void uartTxPoll(uint32_t base, char *data);
 extern bool initializeGPIOPort(uint32_t base, GPIO_CONFIG * init);
+extern void DisableInterrupts(void);
+extern void EnableInterrupts(void);
 
+/* non-blocking function called periodically in systick to update adcVals */
+uint32_t readADC(int chan)
+{
+	ADC0_SSMUX3_R = chan;	// Select channel to sample
+	ADC0_ISC_R = ADC_ISC_IN3;	// Acknowledge completion
+	ADC0_PSSI_R = ADC_PSSI_SS3;	// Initiate SS3
+	while (!(ADC0_RIS_R & ADC_RIS_INR3));	// wait for sample
+	ADC0_ISC_R = ADC_ISC_IN3;	// Acknowledge completion
+	return ADC0_SSFIFO3_R & 0x0FFF;
+}
+
+void handlePS2(void)
+{
+	uint16_t t;
+	static uint16_t debounce = 0;
+
+	debounce = (debounce << 1) | (GPIO_PORTB_DATA_R & PB1_PS2_BUTTON ? 1 : 0);
+	if (debounce == 0x8000)
+		jstick.press = 1;
+	else if (debounce == 0x7FFF)
+		jstick.release = 1;
+	
+	t = readADC(A0C10_YPOS_IN);
+	if (t < jsranges[jstick.y].bot)
+		jstick.y--;
+	else if (t > jsranges[jstick.y].top)
+		jstick.y++;
+	
+	t = readADC(A0C11_XPOS_IN);
+	if (t < jsranges[jstick.x].bot)
+		jstick.x--;
+	else if (t > jsranges[jstick.x].top)
+		jstick.x++;
+}
+
+void handleMotors(void)
+{
+	static uint32_t MotorDutyCycle = 0;
+
+	MotorDutyCycle = (MotorDutyCycle + 1) % 100;
+	
+	if (motor0.dir)
+		GPIO_PORTF_DATA_R |= PF1_MOTOR_0_DIR;
+	else
+		GPIO_PORTF_DATA_R &= ~PF1_MOTOR_0_DIR;
+
+	if (MotorDutyCycle >= motor0.pow)
+		GPIO_PORTF_DATA_R &= ~PF2_MOTOR_0_EN;
+	else
+		GPIO_PORTF_DATA_R |= PF2_MOTOR_0_EN;
+
+
+	if (!motor1.dir)
+		GPIO_PORTF_DATA_R |= PF3_MOTOR_1_DIR;
+	else
+		GPIO_PORTF_DATA_R &= ~PF3_MOTOR_1_DIR;
+
+	if (MotorDutyCycle >= motor1.pow)
+		GPIO_PORTF_DATA_R &= ~PF4_MOTOR_1_EN;
+	else
+		GPIO_PORTF_DATA_R |= PF4_MOTOR_1_EN;
+}
+
+void handleEncoders(void)
+{
+	static char pe0 = 0;
+	static char pe1 = 0;
+	char e0 = (GPIO_PORTB_DATA_R & (PB2_MOTOR_0_SA | PB3_MOTOR_0_SB)) >> 2;
+	char e1 = (GPIO_PORTB_DATA_R & (PB6_MOTOR_1_SA | PB7_MOTOR_1_SB)) >> 6;
+	
+	DisableInterrupts();
+	if (e0 ^ pe0)
+		motor0.odo++;
+	if (e1 ^ pe1)
+		motor1.odo++;
+	EnableInterrupts();
+	
+	pe0 = e0;
+	pe1 = e1;
+}
+
+void handleURFs(void)
+{
+	static char isLo = 0;
+	
+	static int pings = 0;
+	static int u0n = 0, u1n = 0;
+	static uint32_t u0sum = 0.0, u1sum = 0.0;
+	
+	char str[255];
+	
+	// Ensure GPIO port E interrupts are enabled
+	NVIC_EN0_R |= NVIC_EN0_INT4;
+	
+	if (!isLo) {
+		DisableInterrupts();
+		if (urf0.s && urf0.e) {
+			u0sum += urf0.e - urf0.s;
+			u0n++;
+		}
+		if (urf1.s && urf1.e) {
+			u1sum += urf1.e - urf1.s;
+			u1n++;
+		}
+		urf0.s = urf0.e = urf1.s = urf1.e = 0;
+		EnableInterrupts();
+		
+		//start a new ping
+		GPIO_PORTB_DATA_R &= ~PB0_TRIG_0;
+		GPIO_PORTE_DATA_R &= ~PE2_TRIG_1;
+		
+		pings++;
+	} else {
+		//raise the line in prep for next ping
+		GPIO_PORTB_DATA_R |= PB0_TRIG_0;
+		GPIO_PORTE_DATA_R |= PE2_TRIG_1;
+	}
+	isLo = !isLo;
+	
+	if (pings >= NUM_SAMPLES) {
+		DisableInterrupts();
+		urf0.dist = u0n ? u0sum / (u0n * 80 * 58) : 0;
+		urf1.dist = u1n ? u1sum / (u1n * 80 * 58) : 0;
+		EnableInterrupts();
+		
+		u0n = u0sum = u1n = u1sum = 0;
+		pings = 0;
+	}
+}
+
+void handleIR()
+{
+	static uint16_t v;
+	
+	static int n = 0;
+	static uint32_t sum = 0;
+	
+	v = readADC(A0C3_RANGE_0_IN);
+	sum += v;
+	n++;
+	
+	if (n == NUM_SAMPLES) {
+		ir0.dist = sum / n;
+		n = 0;
+		sum = 0;
+	}
+}
 
 void initADC(void)
 {
@@ -111,18 +259,6 @@ void initADC(void)
 	ADC0_ACTSS_R |= ADC_ACTSS_ASEN3;	// Enable SS3
 }
 
-
-/* non-blocking function called periodically in systick to update adcVals */
-uint32_t readADC(int chan)
-{
-	ADC0_SSMUX3_R = chan;	// Select channel to sample
-	ADC0_ISC_R = ADC_ISC_IN3;	// Acknowledge completion
-	ADC0_PSSI_R = ADC_PSSI_SS3;	// Initiate SS3
-	while (!(ADC0_RIS_R & ADC_RIS_INR3));	// wait for sample
-	ADC0_ISC_R = ADC_ISC_IN3;	// Acknowledge completion
-	return ADC0_SSFIFO3_R & 0x0FFF;
-}
-
 void initSYSTICK(uint32_t count)
 {
 	NVIC_ST_CTRL_R = 0;	// disable SysTick timer
@@ -134,33 +270,25 @@ void initSYSTICK(uint32_t count)
 	    NVIC_ST_CTRL_CLK_SRC;
 }
 
+/* TODO: fix... this is horrible*/
+void systickDelay(int delay)
+{
+	systick_delay = 0;
+	while (systick_delay < delay * 5);
+}
+
 void SYSTICKIntHandler(void)
 {
-	int s;
+	char str[512];
 	
-	MotorDutyCycle++;
-	MotorDutyCycle %= 100;
+	systick_delay++;
 	
-	s = motorspeeds[jstick.y];
-	// backwards speeds
-	if (s < 0) {
-		GPIO_PORTF_DATA_R &= ~PF1_MOTOR_0_DIR;
-		GPIO_PORTF_DATA_R |= PF3_MOTOR_1_DIR;
-		s = -s;
-	// forwards speeds
-	} else {
-		GPIO_PORTF_DATA_R |= PF1_MOTOR_0_DIR;
-		GPIO_PORTF_DATA_R &= ~PF3_MOTOR_1_DIR;
-	}
-
-	if (MotorDutyCycle >= s) {
-		GPIO_PORTF_DATA_R &= ~PF2_MOTOR_0_EN;
-		GPIO_PORTF_DATA_R &= ~PF4_MOTOR_1_EN;
-	} else {
-		GPIO_PORTF_DATA_R |= PF2_MOTOR_0_EN;
-		GPIO_PORTF_DATA_R |= PF4_MOTOR_1_EN;
-	}
+	handleMotors();
+	handleEncoders();
+	
+	//handlePS2();
 }
+
 void initTIMER0A(uint32_t count)
 {
 	SYSCTL_RCGCTIMER_R |= SYSCTL_RCGCTIMER_R0;
@@ -178,55 +306,34 @@ void initTIMER0A(uint32_t count)
 
 void TIMER0AIntHandler(void)
 {
-	static char isLo = 0;
 	char str[255];
-	
-	if (!isLo) {
-		if (urf0.s && urf0.e) {
-			//sprintf(str, "URF0: %d - %d = %d\n\r", urf0.e, urf0.s, urf0.e - urf0.s);
-			sprintf(str, "URF0: %d ticks = %d cm\n\r",
-				(urf0.e - urf0.s),
-				(urf0.e - urf0.s) * 2 * 100 / 340 / 8000
-			);
-			uartTxPoll(UART0, str);
-		}
-		
-		if (urf1.s && urf1.e) {
-			sprintf(str, "URF1: %d - %d = %d\n\r", urf1.e, urf1.s, urf1.e - urf1.s);
-			uartTxPoll(UART0, str);
-		}
-		urf0.s = urf0.e = urf1.s = urf1.e = 0;
-		
-		GPIO_PORTB_DATA_R &= ~PB0_TRIG_0;
-		GPIO_PORTE_DATA_R &= ~PE2_TRIG_1;
-	} else {
-		GPIO_PORTB_DATA_R |= PB0_TRIG_0;
-		GPIO_PORTE_DATA_R |= PE2_TRIG_1;
-	}
-	isLo = !isLo;
-	
-	//Calculate Distance
-	// distance (cm) = delay(uS) / 58 
+	handleURFs();
 	
 	TIMER0_ICR_R |= TIMER_ICR_TATOCINT;
 }
 
 void PORTEIntHandler(void)
 {
-	/* disable interrupts!! */
-	
 	if (GPIO_PORTE_RIS_R & PE1_ECHO_0) {
-		if (!urf0.s)
+		DisableInterrupts();
+		
+		if (GPIO_PORTE_DATA_R & PE1_ECHO_0)
 			urf0.s = TIMER0_TAR_R;
 		else
 			urf0.e = TIMER0_TAR_R;
+		
+		EnableInterrupts();
 	}
 	
 	if (GPIO_PORTE_RIS_R & PE3_ECHO_1) {
-		if (!urf1.s)
+		DisableInterrupts();
+		
+		if (GPIO_PORTE_DATA_R & PE3_ECHO_1)
 			urf1.s = TIMER0_TAR_R;
 		else
 			urf1.e = TIMER0_TAR_R;
+		
+		EnableInterrupts();
 	}
 	
 	GPIO_PORTE_ICR_R = ~0;
@@ -248,28 +355,20 @@ void initTIMER1A(uint32_t count)
 
 void TIMER1AIntHandler(void)
 {
-	uint16_t v;
-	char str[255];
-	
-	v = readADC(A0C3_RANGE_0_IN);
-	sprintf(str, "IR0: %d\n\r", v);
-	uartTxPoll(UART0, str);
+	handleIR();
 	
 	TIMER1_ICR_R |= TIMER_ICR_TATOCINT;
 }
 
-
-//*****************************************************************************
-//*****************************************************************************
 int main(void)
 {
-	volatile unsigned long delay;
 	char str[255];
 	int t;
-	static uint16_t debounce = 0;
+	uint32_t delay;
 	
 	// Initialize the PLLs so the the main CPU frequency is 80MHz
 	PLL_Init();
+
 	initializeGPIOPort(PORTA, &portA_config);
 	initializeGPIOPort(PORTB, &portB_config);
 	initializeGPIOPort(PORTC, &portC_config);
@@ -280,52 +379,90 @@ int main(void)
 	
 	initADC();
 	initSYSTICK(11429);   //5kHz
-	initTIMER0A(40000000);
-	initTIMER1A(40000000);
-	
-	// EXTRA INIT FOR GPIOE interrupts
-	NVIC_EN0_R |= NVIC_EN0_INT4;
+	initTIMER0A(1000000);
+	initTIMER1A(1000000);
 	
 	uartTxPoll(UART0, "=============================\n\r");
-	uartTxPoll(UART0, "ECE315 Lab1  \n\r");
+	uartTxPoll(UART0, "ECE315 Lab3  \n\r");
 	uartTxPoll(UART0, "=============================\n\r");
 	
 	
 	while (1) {
-		//
+		sprintf(str, "S %d %d %d\n\r", urf0.dist, urf1.dist, ir0.dist);
+		uartTxPoll(UART0, str);
+		//sprintf(str, "O %d %d\n\r", motor0.odo, motor1.odo);
+		//uartTxPoll(UART0, str);
+		/*while (1) {
+			sprintf(str, "S %d %d %d\n\r", urf0.dist, urf1.dist, ir0.dist);
+			uartTxPoll(UART0, str);
+		}*/
 		
-		/* this "works", but should be rethought */
-		debounce = (debounce << 1) | (GPIO_PORTB_DATA_R & PB1_PS2_BUTTON ? 1 : 0);
-		if (debounce == 0x8000) {
-			jstick.press = 1;
-			uartTxPoll(UART0, "B: PRESSED\n\r");
+		if (ir0.dist > 1200 || (urf0.dist < 30 && urf1.dist < 30)) {
+			uartTxPoll(UART0, "HEAD ON\r\n");
+			sprintf(str, "S %d %d %d\n\r", urf0.dist, urf1.dist, ir0.dist);
+			uartTxPoll(UART0, str);
 			
-		} else if (debounce == 0x7FFF) {
-			jstick.release = 1;
-			uartTxPoll(UART0, "B: RELEASED\n\r");
-		
+			motor0.pow = motor1.pow = 0;
+			while(1);
 		}
 		
-		t = readADC(A0C10_YPOS_IN);
-		if (t < jsranges[jstick.y].bot) {
-			jstick.y--;
-			sprintf(str, "Y: moved left to %x (ADC: %d)\n\r", jstick.y, t);
+		if (urf0.dist < 30) {
+			uartTxPoll(UART0, "RIGHT SIDE\r\n");
+			sprintf(str, "S %d %d %d\n\r", urf0.dist, urf1.dist, ir0.dist);
 			uartTxPoll(UART0, str);
-		} else if (t > jsranges[jstick.y].top) {
-			jstick.y++;
-			sprintf(str, "Y: moved right to %x (ADC: %d)\n\r", jstick.y, t);
-			uartTxPoll(UART0, str);
+			
+			// stop for a second
+			motor0.pow = motor1.pow = 0;
+			systickDelay(1000);
+			
+			// turn until ready
+			motor0.dir = MotorRev; motor1.dir = MotorFwd;
+			motor0.odo = motor1.odo = 0;
+			motor0.pow = motor1.pow = REG_POW;
+			while (motor0.odo < 285 / 4);
+
+			// stop for a second
+			motor0.pow = motor1.pow = 0;
+			systickDelay(1000);
+			
+			//resume going fwd
+			motor0.dir = MotorFwd;
+			motor1.dir = MotorFwd;
+			motor0.pow = motor1.pow = REG_POW;
 		}
 		
-		t = readADC(A0C11_XPOS_IN);
-		if (t < jsranges[jstick.x].bot) {
-			jstick.x--;
-			sprintf(str, "X: moved left to %x (ADC: %d)\n\r", jstick.x, t);
+		if (urf1.dist < 30) {
+			uartTxPoll(UART0, "LEFT SIDE\r\n");
+			sprintf(str, "S %d %d %d\n\r", urf0.dist, urf1.dist, ir0.dist);
 			uartTxPoll(UART0, str);
-		} else if (t > jsranges[jstick.x].top) {
-			jstick.x++;
-			sprintf(str, "X: moved right to %x (ADC: %d)\n\r", jstick.x, t);
-			uartTxPoll(UART0, str);
+			
+			// stop for a second
+			motor0.pow = motor1.pow = 0;
+			systickDelay(1000);
+			
+			// turn until ready
+			motor0.dir = MotorFwd; motor1.dir = MotorRev;
+			motor0.odo = motor1.odo = 0;
+			motor0.pow = motor1.pow = REG_POW;
+			while (motor0.odo < 285 / 4);
+
+			// stop for a second
+			motor0.pow = motor1.pow = 0;
+			systickDelay(1000);
+			
+			//resume going fwd
+			motor0.dir = MotorFwd;
+			motor1.dir = MotorFwd;
+			motor0.pow = motor1.pow = REG_POW;
 		}
+		
+		
+		
+		/*if (such collision) {
+			reset odometers;
+			change direction;
+			while (!odo where they should be);
+			restore direction
+		}*/
 	}
 }

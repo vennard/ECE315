@@ -83,6 +83,7 @@ __heap_limit
 		EXTERN 	TIMER0AIntHandler
 		EXTERN 	TIMER1AIntHandler
 		EXTERN 	PORTEIntHandler
+		EXTERN 	ADC0IntHandler
 
 ;******************************************************************************
 ;
@@ -121,7 +122,7 @@ __Vectors
         DCD     IntDefaultHandler           ; PWM Generator 1			27
         DCD     IntDefaultHandler           ; PWM Generator 2			28
         DCD     IntDefaultHandler           ; Quadrature Encoder 0		29
-        DCD     IntDefaultHandler           ; ADC Sequence 0			30
+        DCD     ADC0IntHandler           ; ADC Sequence 0			30
         DCD     IntDefaultHandler           ; ADC Sequence 1			31
         DCD     IntDefaultHandler           ; ADC Sequence 2			32	
         DCD     IntDefaultHandler           ; ADC Sequence 3			33
