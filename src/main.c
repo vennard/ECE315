@@ -18,7 +18,7 @@
 #define PORTF   0x40025000
 
 #define NUM_SAMPLES 10
-#define REG_POW 33
+#define REG_POW 0
 
 //*****************************************************************************
 // TABLES
@@ -76,6 +76,7 @@ volatile struct joystick {
 	int release;
 } jstick = {5, 5, 0, 0};
 
+volatile uint16_t adc0read[3];
 uint32_t systick_delay = 0;
 
 //*****************************************************************************
@@ -89,17 +90,6 @@ extern bool initializeGPIOPort(uint32_t base, GPIO_CONFIG * init);
 extern void DisableInterrupts(void);
 extern void EnableInterrupts(void);
 
-/* non-blocking function called periodically in systick to update adcVals */
-uint32_t readADC(int chan)
-{
-	ADC0_SSMUX3_R = chan;	// Select channel to sample
-	ADC0_ISC_R = ADC_ISC_IN3;	// Acknowledge completion
-	ADC0_PSSI_R = ADC_PSSI_SS3;	// Initiate SS3
-	while (!(ADC0_RIS_R & ADC_RIS_INR3));	// wait for sample
-	ADC0_ISC_R = ADC_ISC_IN3;	// Acknowledge completion
-	return ADC0_SSFIFO3_R & 0x0FFF;
-}
-
 void handlePS2(void)
 {
 	uint16_t t;
@@ -111,17 +101,52 @@ void handlePS2(void)
 	else if (debounce == 0x7FFF)
 		jstick.release = 1;
 	
-	t = readADC(A0C10_YPOS_IN);
+	t = adc0read[0];
 	if (t < jsranges[jstick.y].bot)
 		jstick.y--;
 	else if (t > jsranges[jstick.y].top)
 		jstick.y++;
 	
-	t = readADC(A0C11_XPOS_IN);
+	t = adc0read[2];
 	if (t < jsranges[jstick.x].bot)
 		jstick.x--;
 	else if (t > jsranges[jstick.x].top)
 		jstick.x++;
+}
+
+void ADC0IntHandler(void)
+{
+	// Acknowledge completion
+	ADC0_ISC_R = ~0;
+	
+	adc0read[0] = ADC0_SSFIFO0_R & 0x0FFF;
+	adc0read[1] = ADC0_SSFIFO0_R & 0x0FFF;
+	adc0read[2] = ADC0_SSFIFO0_R & 0x0FFF;
+}
+
+void initADC(void)
+{
+	uint32_t delay;
+
+	// Enable ADC 
+	SYSCTL_RCGCADC_R |= SYSCTL_RCGCADC_R0;
+	for (delay = 10; delay--;);
+	SYSCTL_RCGC0_R |= SYSCTL_RCGC0_ADC0;	// Activate ADC0
+	SYSCTL_RCGC0_R &= ~SYSCTL_RCGC0_ADC0SPD_M;	// set ADC0 to default 125k
+	// Sequence 0 is highest priority
+	ADC0_SSPRI_R =
+	    ADC_SSPRI_SS0_1ST |
+	    ADC_SSPRI_SS1_2ND |
+	    ADC_SSPRI_SS2_3RD |
+	    ADC_SSPRI_SS3_4TH;
+	ADC0_ACTSS_R &= ~ADC_ACTSS_ASEN0;	// Disable sample sequencer 0
+	ADC0_IM_R = ADC_IM_MASK0;		// Interrupt on SS0
+	ADC0_EMUX_R = ADC_EMUX_EM0_ALWAYS;	// Continuous
+	ADC0_SSCTL0_R = ADC_SSCTL0_END2 | ADC_SSCTL0_IE2;
+	ADC0_SSMUX0_R = (A0C10_YPOS_IN << 8) | (A0C11_XPOS_IN << 4) | A0C3_RANGE_0_IN;
+	
+	ADC0_ACTSS_R |= ADC_ACTSS_ASEN0;	// Enable SS0
+	NVIC_EN0_R |= NVIC_EN0_INT14; // Enable interrupt in NVIC
 }
 
 void handleMotors(void)
@@ -160,9 +185,9 @@ void handleEncoders(void)
 	char e1 = (GPIO_PORTB_DATA_R & (PB6_MOTOR_1_SA | PB7_MOTOR_1_SB)) >> 6;
 	
 	DisableInterrupts();
-	if (e0 ^ pe0)
+	if (e0 != pe0)
 		motor0.odo++;
-	if (e1 ^ pe1)
+	if (e1 != pe1)
 		motor1.odo++;
 	EnableInterrupts();
 	
@@ -226,7 +251,7 @@ void handleIR()
 	static int n = 0;
 	static uint32_t sum = 0;
 	
-	v = readADC(A0C3_RANGE_0_IN);
+	v = adc0read[1];
 	sum += v;
 	n++;
 	
@@ -235,28 +260,6 @@ void handleIR()
 		n = 0;
 		sum = 0;
 	}
-}
-
-void initADC(void)
-{
-	uint32_t delay;
-
-	// Enable ADC 
-	SYSCTL_RCGCADC_R |= SYSCTL_RCGCADC_R0;
-	for (delay = 10; delay--;);
-	SYSCTL_RCGC0_R |= SYSCTL_RCGC0_ADC0;	// Activate ADC0
-	SYSCTL_RCGC0_R &= ~SYSCTL_RCGC0_ADC0SPD_M;	// set ADC0 to default 125k
-	// Sequence 3 is highest priority
-	ADC0_SSPRI_R =
-	    ADC_SSPRI_SS3_1ST |
-	    ADC_SSPRI_SS2_2ND |
-	    ADC_SSPRI_SS1_3RD |
-	    ADC_SSPRI_SS0_4TH;
-	ADC0_IM_R = 0;		// Don't send any interrupts
-	ADC0_ACTSS_R &= ~ADC_ACTSS_ASEN3;	// Disable sample sequencer 3
-	ADC0_EMUX_R &= ~ADC_EMUX_EM3_M;	// Use default PROCESSOR trigger
-	ADC0_SSCTL3_R = ADC_SSCTL3_END0 | ADC_SSCTL3_IE0;	// sequence ends after sample 0.
-	ADC0_ACTSS_R |= ADC_ACTSS_ASEN3;	// Enable SS3
 }
 
 void initSYSTICK(uint32_t count)
@@ -386,23 +389,46 @@ int main(void)
 	uartTxPoll(UART0, "ECE315 Lab3  \n\r");
 	uartTxPoll(UART0, "=============================\n\r");
 	
+	/*while (1) {
+		sprintf(str, "S %d %d %d\n\r", adc0read[0], adc0read[1], adc0read[2]);
+		uartTxPoll(UART0, str);
+	}*/
+	
 	
 	while (1) {
 		sprintf(str, "S %d %d %d\n\r", urf0.dist, urf1.dist, ir0.dist);
 		uartTxPoll(UART0, str);
-		//sprintf(str, "O %d %d\n\r", motor0.odo, motor1.odo);
-		//uartTxPoll(UART0, str);
-		/*while (1) {
-			sprintf(str, "S %d %d %d\n\r", urf0.dist, urf1.dist, ir0.dist);
-			uartTxPoll(UART0, str);
-		}*/
 		
 		if (ir0.dist > 1200 || (urf0.dist < 30 && urf1.dist < 30)) {
 			uartTxPoll(UART0, "HEAD ON\r\n");
 			sprintf(str, "S %d %d %d\n\r", urf0.dist, urf1.dist, ir0.dist);
 			uartTxPoll(UART0, str);
 			
+			
+			// stop for a second
 			motor0.pow = motor1.pow = 0;
+			systickDelay(1000);
+			
+			// turn 180
+			motor0.dir = MotorFwd; motor1.dir = MotorRev;
+			motor0.odo = motor1.odo = 0;
+			motor0.pow = motor1.pow = REG_POW;
+			while (motor0.odo < 285 / 2);
+
+			// stop for a second
+			motor0.pow = motor1.pow = 0;
+			systickDelay(1000);
+			
+			//resume going fwd
+			motor0.dir = MotorFwd;
+			motor1.dir = MotorFwd;
+			motor0.pow = motor1.pow = REG_POW;
+			
+			//halt after 3 ft
+			while (motor0.odo < 1000);
+			motor0.pow = motor1.pow = 0;
+			
+			//don't move
 			while(1);
 		}
 		
@@ -416,7 +442,7 @@ int main(void)
 			systickDelay(1000);
 			
 			// turn until ready
-			motor0.dir = MotorRev; motor1.dir = MotorFwd;
+			motor0.dir = MotorFwd; motor1.dir = MotorRev;
 			motor0.odo = motor1.odo = 0;
 			motor0.pow = motor1.pow = REG_POW;
 			while (motor0.odo < 285 / 4);
@@ -441,7 +467,7 @@ int main(void)
 			systickDelay(1000);
 			
 			// turn until ready
-			motor0.dir = MotorFwd; motor1.dir = MotorRev;
+			motor0.dir = MotorRev; motor1.dir = MotorFwd;
 			motor0.odo = motor1.odo = 0;
 			motor0.pow = motor1.pow = REG_POW;
 			while (motor0.odo < 285 / 4);
