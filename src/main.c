@@ -64,6 +64,10 @@ int prev_val_1 = 0;
 int distance_0 = 0;
 int distance_1 = 0;
 int display_dist = 0;
+int distances_saved_0 = 0;
+int num_distances_saved_0 = 0;
+int distances_saved_1 = 0;
+int num_distances_saved_1 = 0;
 int turn = -1; // 0 - right, 1 - left, [-1 - no turn]
 char str[255];
 
@@ -217,6 +221,8 @@ void TIMER0AIntHandler(void)
 			  //Wait for falling edge of echo to end timer and calc distance
 				if (((PE1_ECHO_0 & GPIO_PORTE_DATA_R)==0)&&(prev_val_0 == 2)) {
 					distance_0 = (response_time_0*10) / 58; //Calculate distance in cm
+					distances_saved_0 += distance_0;
+					num_distances_saved_0++;
 				  time_result_0 = 0;
 				}
 	 prev_val_0 = (PE1_ECHO_0 & GPIO_PORTE_DATA_R);
@@ -230,22 +236,26 @@ void TIMER0AIntHandler(void)
 			  //Wait for falling edge of echo to end timer and calc distance
 				if (((PE3_ECHO_1 & GPIO_PORTE_DATA_R)==0)&&(prev_val_1 == 8)) {
 					distance_1 = (response_time_1*10) / 58; //Calculate distance in cm
+					distances_saved_1 += distance_1;
+					num_distances_saved_1++;
 				  time_result_1 = 0;
 				}
 			
 	 prev_val_1 = (PE3_ECHO_1 & GPIO_PORTE_DATA_R);
 	}
-	//Print out distance results once every second (10us * 10^5)
+	//Print out average distance results once every second (10us * 10^5)
 	if (display_dist >= 100000) {
+		int avg_dist_0 = distances_saved_0 / num_distances_saved_0;
+		int avg_dist_1 = distances_saved_1 / num_distances_saved_1;
+		distances_saved_0 = 0;
+		distances_saved_1 = 0;
+		num_distances_saved_0 = 0;
+		num_distances_saved_1 = 0;
 		display_dist = 0;
-		if (distance_0 != -1) {
-			sprintf(str, "DISTANCE OF RANGEFINDER 0-> %d cm\r\n",distance_0);
-			uartTxPoll(UART0, str);
-		}
-		if (distance_1 != -1) {
-			sprintf(str, "DISTANCE OF RANGEFINDER 1-> %d cm\r\n",distance_1);
-			uartTxPoll(UART0, str);
-		}
+		sprintf(str, "AVERAGE DISTANCE OF RANGEFINDER 0-> %d cm\r\n",avg_dist_0);
+		uartTxPoll(UART0, str);
+		sprintf(str, "AVERAGE DISTANCE OF RANGEFINDER 1-> %d cm\r\n",avg_dist_1);
+		uartTxPoll(UART0, str);
 	}
 }
 

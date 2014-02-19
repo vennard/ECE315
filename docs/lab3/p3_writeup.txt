@@ -1,0 +1,18 @@
+John Vennard and Cliff Buchanan
+ECE315 LAB 3: Distance Sensors
+
+1. First we familiarized ourselves with the datasheets of both sensors.
+2. Then we configured Timer0 to interrupt at a frequency of 10 micro seconds.
+3. We then tested to the timer0 to make sure it was operating as expected.
+4. We then defined the TRIG and ECHO pulses from the sonic range finders in our board_config.h file.
+5. Using the oscilloscope we took a look at the behavior of the TRIG and ECHO signals associated with the sonic range finder. Identifying the behavior of those helped us decode the less then helpful datasheet and figure out how to setup the code for the sensors.
+6. Given the behavior we were seeing on the oscilloscope we needed to use edge detection to know when to start our timer to figure out how long it took for the sound waves to bounce back to the sensor therefore giving us our distance. 
+7. In our first attempt we measured from the rising edge of the TRIG signal to the falling edge of the ECHO signal, this ended up giving us very inaccurate distances so we changed to measuring the pulse length of the ECHO signal.
+8. After we calibrated the distance correctly we changed the code to throw out very long (invalid) distances as we will only be needing the smaller accurate measurements for collision detection.
+9. Once we saw the correct operation of the one sonic range finder we then setup both to work simultaneously and print out there valid results once every second.
+10. Then we started working on the optical range finder, we started by setting up another ADC (besides the one for the motors) in order to read the analog data coming from the optical sensor.
+11. Then we setup timer1 the exact same way we did for timer0 for the sonic range finder.
+12. Then we tested the input coming from the optical range finder and found that it is very dependent on the type of object you hold in front of it. 
+13. Continuing with our testing we changed the code on both sensors to average the values.
+14. Then we started messing around with encoders trying to get them setup for motor integration - this involved editing our PWM code to allow for turn commands.
+15. 
