@@ -57,6 +57,8 @@ volatile int MotorDutyCycle = 0;
 int response_time = 0;
 int count = 0;
 int time_result = 0;
+int distance = 0;
+char str[255];
 
 volatile struct joystick {
 	int x;
@@ -163,48 +165,44 @@ void initTIMER0A(uint32_t count)
 void TIMER0AIntHandler(void)
 {
 	TIMER0_ICR_R |= TIMER_ICR_TATOCINT;
-	//uartTxPoll(UART0, "#");
-	//GPIO_PORTB_DATA_R ^= PB0_TRIG_0;
 	//Send pulse at 20Hz
 	count++;
-	if (count == 50000) {
+	response_time++;
+	if (count == 5000) {
 		//Send short >10us pulse -- TODO
+		//start timer
 		GPIO_PORTB_DATA_R |= PB0_TRIG_0;
 		time_result = 1;
 		response_time = 0;
 	}
-	if (count >= 50020) {
-	//if (count >= 51000) {
-		//End 10us pulse and start response timer
+	if (count >= 5020) {
+	//if (count >= 5100) {
+		//End >10us pulse
 		GPIO_PORTB_DATA_R &= ~PB0_TRIG_0;	
 		count = 0;
 	}
+	
 	//Timing until ECHO signal STOPS (Falling Edge)
 	if (time_result == 1) {
-			response_time++;
-			response_time = 0;
-			time_result = 0;
-			//check for echo signal
-			//PE1_ECHO_0
+		//give time for response
+		if (response_time >= 6) {
+				//Watch for falling edge
+						//TODO MUST ADD EDGE DETECTION (aka detect rising and falling edge and make sure one is in front of the other)
+				if ((PE1_ECHO_0 & GPIO_PORTE_DATA_R)==2) {
+					//detected start
+					distance = (response_time*10) / 58;
+					time_result = 0;
+					response_time = 0;
+				}
+
+			//Seen response signal
+			//else {
+				//distance = response_time / 58;
+				
+
+			}
 	}
-	/*
-	if (jstick.press) 
-	{
-		jstick.press = 0;
-		GPIO_PORTB_DATA_R |= PB0_TRIG_0;
-		//Wait 10us
-		GPIO_PORTB_DATA_R &= ~PB0_TRIG_0;
-		//GPIO_PORTE_DATA_R |= PE2_TRIG_1;
-	}
-	else 
-	{
-		GPIO_PORTB_DATA_R &= ~PB0_TRIG_0;
-		//GPIO_PORTE_DATA_R &= ~PE2_TRIG_1;
-	}
-	*/
-	//Calculate Distance
-	// distance (cm) = delay(uS) / 58 
-	
+
 	
 }
 
@@ -214,7 +212,6 @@ void TIMER0AIntHandler(void)
 int main(void)
 {
 	volatile unsigned long delay;
-	char str[255];
 	int t;
 	static uint16_t debounce = 0;
 	
@@ -231,7 +228,7 @@ int main(void)
 	initADC();
 	initSYSTICK(11429);   //5kHz
 	//initTIMER0A(4000000); //20Hz
-	initTIMER0A(80); //Interrupts every us
+	initTIMER0A(800); //Interrupts every 10us
 	
 	uartTxPoll(UART0, "=============================\n\r");
 	uartTxPoll(UART0, "ECE315 Lab1  \n\r");
@@ -240,7 +237,8 @@ int main(void)
 	
 	while (1) {
 		//
-		
+				sprintf(str, "DISTANCE -> %d \r\n",distance);
+		uartTxPoll(UART0, str);
 		/* this "works", but should be rethought */
 		debounce = (debounce << 1) | (GPIO_PORTB_DATA_R & PB1_PS2_BUTTON ? 1 : 0);
 		if (debounce == 0x8000) {
