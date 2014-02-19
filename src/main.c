@@ -54,10 +54,17 @@ int motorspeeds[] = {
 };
 
 volatile int MotorDutyCycle = 0;
-int response_time = 0;
+int response_time_0 = 0;
+int response_time_1 = 0;
 int count = 0;
-int time_result = 0;
-int distance = 0;
+int time_result_0 = 0;
+int time_result_1 = 0;
+int prev_val_0 = 0;
+int prev_val_1 = 0;
+int distance_0 = 0;
+int distance_1 = 0;
+int display_dist = 0;
+int turn = -1; // 0 - right, 1 - left, [-1 - no turn]
 char str[255];
 
 volatile struct joystick {
@@ -123,28 +130,36 @@ void initSYSTICK(uint32_t count)
 void SYSTICKIntHandler(void)
 {
 	int s;
-	
 	MotorDutyCycle++;
-	MotorDutyCycle %= 100;
-	
+	MotorDutyCycle %= 100;	
 	s = motorspeeds[jstick.y];
-	// backwards speeds
-	if (s < 0) {
-		GPIO_PORTF_DATA_R &= ~PF1_MOTOR_0_DIR;
-		GPIO_PORTF_DATA_R |= PF3_MOTOR_1_DIR;
-		s = -s;
-	// forwards speeds
-	} else {
-		GPIO_PORTF_DATA_R |= PF1_MOTOR_0_DIR;
-		GPIO_PORTF_DATA_R &= ~PF3_MOTOR_1_DIR;
+	
+	//Turn Right 
+	if (turn == 0) {
+		
 	}
-
-	if (MotorDutyCycle >= s) {
-		GPIO_PORTF_DATA_R &= ~PF2_MOTOR_0_EN;
-		GPIO_PORTF_DATA_R &= ~PF4_MOTOR_1_EN;
-	} else {
-		GPIO_PORTF_DATA_R |= PF2_MOTOR_0_EN;
-		GPIO_PORTF_DATA_R |= PF4_MOTOR_1_EN;
+	//Turn Left
+	else if (turn == 1) {
+		
+	}
+	else {
+	// backwards speeds
+		if (s < 0) {
+			GPIO_PORTF_DATA_R &= ~PF1_MOTOR_0_DIR;
+			GPIO_PORTF_DATA_R |= PF3_MOTOR_1_DIR;
+			s = -s;
+		// forwards speeds
+		} else {
+			GPIO_PORTF_DATA_R |= PF1_MOTOR_0_DIR;
+			GPIO_PORTF_DATA_R &= ~PF3_MOTOR_1_DIR;
+		}
+		if (MotorDutyCycle >= s) {
+			GPIO_PORTF_DATA_R &= ~PF2_MOTOR_0_EN;
+			GPIO_PORTF_DATA_R &= ~PF4_MOTOR_1_EN;
+		} else {
+			GPIO_PORTF_DATA_R |= PF2_MOTOR_0_EN;
+			GPIO_PORTF_DATA_R |= PF4_MOTOR_1_EN;
+		}
 	}
 }
 void initTIMER0A(uint32_t count)
@@ -167,43 +182,71 @@ void TIMER0AIntHandler(void)
 	TIMER0_ICR_R |= TIMER_ICR_TATOCINT;
 	//Send pulse at 20Hz
 	count++;
-	response_time++;
+	response_time_0++;
+	response_time_1++;
+	display_dist++;
 	if (count == 5000) {
-		//Send short >10us pulse -- TODO
-		//start timer
-		GPIO_PORTB_DATA_R |= PB0_TRIG_0;
-		time_result = 1;
-		response_time = 0;
+		GPIO_PORTB_DATA_R |= PB0_TRIG_0; 	//Send short >10us pulse
+		GPIO_PORTE_DATA_R |= PE2_TRIG_1;
 	}
 	if (count >= 5020) {
-	//if (count >= 5100) {
-		//End >10us pulse
-		GPIO_PORTB_DATA_R &= ~PB0_TRIG_0;	
+		GPIO_PORTB_DATA_R &= ~PB0_TRIG_0;	//End >10us pulse
+		GPIO_PORTE_DATA_R &= ~PE2_TRIG_1;
 		count = 0;
+		//If ECHO signal is high here -- ignore results
+		//NOTE DISTANCE IS -1 IF RESULT IS NOT VALID
+		if ((PE1_ECHO_0 & GPIO_PORTE_DATA_R)==2) {
+			time_result_0 = 0;
+			distance_0 = -1;
+		} else {
+			time_result_0 = 1;
+		}
+		if ((PE3_ECHO_1 & GPIO_PORTE_DATA_R)==8) {
+			time_result_1 = 0;
+			distance_1 = -1;
+		} else {
+			time_result_1 = 1;
+		}
 	}
-	
-	//Timing until ECHO signal STOPS (Falling Edge)
-	if (time_result == 1) {
-		//give time for response
-		if (response_time >= 6) {
-				//Watch for falling edge
-						//TODO MUST ADD EDGE DETECTION (aka detect rising and falling edge and make sure one is in front of the other)
-				if ((PE1_ECHO_0 & GPIO_PORTE_DATA_R)==2) {
-					//detected start
-					distance = (response_time*10) / 58;
-					time_result = 0;
-					response_time = 0;
+	//Timing until ECHO signal STOPS (Falling Edge) --Sonic 1
+	if (time_result_0 == 1) {
+			  //Wait for rising edge of echo
+				if (((PE1_ECHO_0 & GPIO_PORTE_DATA_R)==2)&&(prev_val_0 == 0)) {
+					response_time_0 = 0;
 				}
-
-			//Seen response signal
-			//else {
-				//distance = response_time / 58;
-				
-
-			}
+			  //Wait for falling edge of echo to end timer and calc distance
+				if (((PE1_ECHO_0 & GPIO_PORTE_DATA_R)==0)&&(prev_val_0 == 2)) {
+					distance_0 = (response_time_0*10) / 58; //Calculate distance in cm
+				  time_result_0 = 0;
+				}
+	 prev_val_0 = (PE1_ECHO_0 & GPIO_PORTE_DATA_R);
 	}
-
-	
+	//Sonic 2
+	if (time_result_1 == 1) {
+			  //Wait for rising edge of echo
+				if (((PE3_ECHO_1 & GPIO_PORTE_DATA_R)==8)&&(prev_val_1 == 0)) {
+					response_time_1 = 0;
+				}
+			  //Wait for falling edge of echo to end timer and calc distance
+				if (((PE3_ECHO_1 & GPIO_PORTE_DATA_R)==0)&&(prev_val_1 == 8)) {
+					distance_1 = (response_time_1*10) / 58; //Calculate distance in cm
+				  time_result_1 = 0;
+				}
+			
+	 prev_val_1 = (PE3_ECHO_1 & GPIO_PORTE_DATA_R);
+	}
+	//Print out distance results once every second (10us * 10^5)
+	if (display_dist >= 100000) {
+		display_dist = 0;
+		if (distance_0 != -1) {
+			sprintf(str, "DISTANCE OF RANGEFINDER 0-> %d cm\r\n",distance_0);
+			uartTxPoll(UART0, str);
+		}
+		if (distance_1 != -1) {
+			sprintf(str, "DISTANCE OF RANGEFINDER 1-> %d cm\r\n",distance_1);
+			uartTxPoll(UART0, str);
+		}
+	}
 }
 
 
@@ -227,7 +270,7 @@ int main(void)
 	
 	initADC();
 	initSYSTICK(11429);   //5kHz
-	//initTIMER0A(4000000); //20Hz
+	//initTIMER0A(800); //Interrupts every 10us
 	initTIMER0A(800); //Interrupts every 10us
 	
 	uartTxPoll(UART0, "=============================\n\r");
@@ -236,9 +279,16 @@ int main(void)
 	
 	
 	while (1) {
-		//
-				sprintf(str, "DISTANCE -> %d \r\n",distance);
-		uartTxPoll(UART0, str);
+		//Collision Detection
+		//If ultrasonic sensors detect object within 20cm turn 90 away
+		//If optical sensor detects object turn 180 degrees and go forward 3ft.
+		
+		//Object within 20cm on right side
+		//if (distance_0 <= 20) {
+		//	jstick.y = 5; //Stop robot
+		//}	
+		//turn = 0;
+		
 		/* this "works", but should be rethought */
 		debounce = (debounce << 1) | (GPIO_PORTB_DATA_R & PB1_PS2_BUTTON ? 1 : 0);
 		if (debounce == 0x8000) {
