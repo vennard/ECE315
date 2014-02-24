@@ -84,6 +84,8 @@ __heap_limit
 		EXTERN 	TIMER1AIntHandler
 		EXTERN 	PORTEIntHandler
 		EXTERN 	ADC0IntHandler
+		EXTERN  UART0IntHandler
+		EXTERN  UART5IntHandler
 
 ;******************************************************************************
 ;
@@ -112,8 +114,8 @@ __Vectors
         DCD     IntDefaultHandler           ; GPIO Port B				17
         DCD     IntDefaultHandler           ; GPIO Port C				18
         DCD     IntDefaultHandler           ; GPIO Port D				19
-        DCD     PORTEIntHandler           ; GPIO Port E				20
-        DCD     IntDefaultHandler              ; UART0 Rx and Tx			21
+        DCD     PORTEIntHandler             ; GPIO Port E				20
+        DCD     UART0IntHandler             ; UART0 Rx and Tx			21
         DCD     IntDefaultHandler           ; UART1 Rx and Tx			22	
         DCD     IntDefaultHandler           ; SSI0 Rx and Tx			23		
         DCD     IntDefaultHandler           ; I2C0 Master and Slave		24
@@ -122,7 +124,7 @@ __Vectors
         DCD     IntDefaultHandler           ; PWM Generator 1			27
         DCD     IntDefaultHandler           ; PWM Generator 2			28
         DCD     IntDefaultHandler           ; Quadrature Encoder 0		29
-        DCD     ADC0IntHandler           ; ADC Sequence 0			30
+        DCD     ADC0IntHandler              ; ADC Sequence 0			30
         DCD     IntDefaultHandler           ; ADC Sequence 1			31
         DCD     IntDefaultHandler           ; ADC Sequence 2			32	
         DCD     IntDefaultHandler           ; ADC Sequence 3			33
@@ -152,6 +154,8 @@ __Vectors
         DCD     IntDefaultHandler           ; CAN2						57
         DCD     IntDefaultHandler           ; Ethernet					58
         DCD     IntDefaultHandler           ; Hibernate					59
+	SPACE	(77 - 60) * 4				; skip 60-76
+	DCD	UART5IntHandler				; UART5 Rx and Tx			77
 
 ;******************************************************************************
 ;

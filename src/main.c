@@ -6,11 +6,13 @@
 #include <stdlib.h>
 #include "lm4f120h5qr.h"
 #include "board_config.h"
+#include "extern.h"
 
 /******************************************************************************
  * Defines
  *****************************************************************************/
 #define ABS(x) (((x) > 0) ? (x) : -(x))
+#define CLIP(x, y, z) (((y) > (z)) ? (z) : ((y) < (x)) ? (x) : (y))
 
 #define PORTA   0x40004000
 #define PORTB   0x40005000
@@ -27,9 +29,10 @@
 #define CPU_HZ 80000000
 // 1 / (200 uS) = 5kHz
 #define SYSTICK_US 200
-// 1 / (100 mS) = 10 Hz
-#define TIMER0_MS 100
-#define TIMER1_MS 100
+// 1 / (25 mS) = 40 Hz
+#define TIMER0_MS 25
+// 1 / (50 mS) = 20 Hz
+#define TIMER1_MS 50
 
 #define PID_MS 100
 
@@ -61,7 +64,6 @@ enum PIDparams {
 	PidNorm = 2000
 };
 
-	
 
 //*****************************************************************************
 // GLOBALS
@@ -83,7 +85,7 @@ volatile struct MotorData {
 	int32_t targ;
 	int32_t speed;
 	int32_t errsum;
-} motor0 = {0, 500, 0, 0}, motor1 = {0, 500, 0, 0};
+} motor0 = {0, -500, 0, 0}, motor1 = {0, -500, 0, 0};
 
 volatile struct Encoder {
 	int32_t odo;
@@ -118,9 +120,6 @@ char invgrey[] = {0, 1, 3, 2};
 // LIBRARY FUNCTIONS
 //*****************************************************************************
 extern void PLL_Init(void);
-extern bool InitializeUART(uint32_t base, UART_CONFIG * init);
-extern char uartRxPoll(uint32_t base);
-extern void uartTxPoll(uint32_t base, char *data);
 extern bool initializeGPIOPort(uint32_t base, GPIO_CONFIG * init);
 extern void DisableInterrupts(void);
 extern void EnableInterrupts(void);
@@ -196,10 +195,10 @@ void handleMotors(void)
 {
 	static uint32_t MotorDutyCycle = 0;
 	static uint32_t c = 0;
-	static int32_t m0d, m1d;
+
+	int32_t m0d, m1d;
 
 	MotorDutyCycle = (MotorDutyCycle + 1) % PWM_WIDTH;
-	
 	c = (c + 1) % (PID_MS * 1000000 / 1000 / SYSTICK_US);
 	
 	/* handle PID stuff every PID_MS milliseconds */
@@ -213,27 +212,16 @@ void handleMotors(void)
 		
 		motor0.errsum += (motor0.targ - motor0.speed) * 1000 / PID_MS;
 		motor1.errsum += (motor1.targ - motor1.speed) * 1000 / PID_MS;
-		
-		m0d = ((motor0.targ - motor0.speed)* Pfactor + motor0.errsum * Ifactor) / PidNorm;
-		m1d = ((motor1.targ - motor1.speed)* Pfactor + motor1.errsum * Ifactor) / PidNorm;
+	
+		m0d = ((motor0.targ - motor0.speed) * Pfactor + motor0.errsum * Ifactor) / PidNorm;
+		m1d = ((motor1.targ - motor1.speed) * Pfactor + motor1.errsum * Ifactor) / PidNorm;
 
-		if (m0d > PWM_WIDTH)
-			motor0.pwm = PWM_WIDTH;
-		else if (m0d < -PWM_WIDTH)
-			motor0.pwm = -PWM_WIDTH;
-		else
-			motor0.pwm = m0d;
-		
-		if (motor1.pwm> PWM_WIDTH)
-			motor1.pwm = PWM_WIDTH;
-		else if (motor1.pwm < -PWM_WIDTH)
-			motor1.pwm = -PWM_WIDTH;
-		else
-			motor1.pwm = m1d;
+		motor0.pwm = CLIP(-PWM_WIDTH, m0d, PWM_WIDTH);
+		motor1.pwm = CLIP(-PWM_WIDTH, m1d, PWM_WIDTH);
 		
 		resetEncs();
 	}
-	
+
 	if (motor0.pwm < 0)
 		GPIO_PORTF_DATA_R |= PF1_MOTOR_0_DIR;
 	else
@@ -243,7 +231,6 @@ void handleMotors(void)
 		GPIO_PORTF_DATA_R &= ~PF2_MOTOR_0_EN;
 	else
 		GPIO_PORTF_DATA_R |= PF2_MOTOR_0_EN;
-
 
 	if (motor1.pwm > 0)
 		GPIO_PORTF_DATA_R |= PF3_MOTOR_1_DIR;
@@ -263,21 +250,13 @@ void handleEncoders(void)
 	
 	DisableInterrupts();
 	switch ((p0 - enc0.pos) % sizeof (invgrey)) {
-	case 1:
-		enc0.odo++;
-	break;
-	case 3:
-		enc0.odo--;
-	break;
+	case 1: enc0.odo++; break;
+	case 3: enc0.odo--; break;
 	}
 	
 	switch ((p1 - enc1.pos) % sizeof (invgrey)) {
-	case 1:
-		enc1.odo--;
-	break;
-	case 3:
-		enc1.odo++;
-	break;
+	case 1: enc1.odo--; break;
+	case 3: enc1.odo++; break;
 	}
 	EnableInterrupts();
 	
@@ -334,16 +313,12 @@ void handleURFs(void)
 
 void handleIR()
 {
-	static uint16_t v;
-	
 	static int n = 0;
 	static uint32_t sum = 0;
 	
-	v = adc0read[1];
-	sum += v;
-	n++;
+	sum += adc0read[1];
 	
-	if (n == NUM_SAMPLES) {
+	if (n++ == NUM_SAMPLES) {
 		ir0.dist = sum / n;
 		n = 0;
 		sum = 0;
@@ -361,7 +336,6 @@ void initSYSTICK(uint32_t count)
 	    NVIC_ST_CTRL_CLK_SRC;
 }
 
-/* TODO: fix... this is horrible*/
 void systickDelay(int ms)
 {
 	DisableInterrupts();
@@ -374,7 +348,9 @@ void SYSTICKIntHandler(void)
 {
 	char str[512];
 	
+	DisableInterrupts();
 	systick_delay++;
+	EnableInterrupts();
 	
 	handleMotors();
 	handleEncoders();
@@ -407,25 +383,17 @@ void TIMER0AIntHandler(void)
 void PORTEIntHandler(void)
 {
 	if (GPIO_PORTE_RIS_R & PE1_ECHO_0) {
-		DisableInterrupts();
-		
 		if (GPIO_PORTE_DATA_R & PE1_ECHO_0)
 			urf0.s = TIMER0_TAR_R;
 		else
 			urf0.e = TIMER0_TAR_R;
-		
-		EnableInterrupts();
 	}
 	
 	if (GPIO_PORTE_RIS_R & PE3_ECHO_1) {
-		DisableInterrupts();
-		
 		if (GPIO_PORTE_DATA_R & PE3_ECHO_1)
 			urf1.s = TIMER0_TAR_R;
 		else
 			urf1.e = TIMER0_TAR_R;
-		
-		EnableInterrupts();
 	}
 	
 	GPIO_PORTE_ICR_R = ~0;
@@ -456,6 +424,7 @@ int main(void)
 {
 	char str[255];
 	int32_t m1d;
+	int c;
 	
 	// Initialize the PLLs so the the main CPU frequency is 80MHz
 	PLL_Init();
@@ -466,23 +435,45 @@ int main(void)
 	initializeGPIOPort(PORTD, &portD_config);
 	initializeGPIOPort(PORTE, &portE_config);
 	initializeGPIOPort(PORTF, &portF_config);
-	InitializeUART(UART0, &UART0_config);
 	
 	initADC();
+	initDbgUART(9600);
+	initXbUART(9600);
+	/*txDbgUART("test\r\n", true);
+	"+++\r"
+	"ATCH=10\r"
+	"ATID=1000\r"
+	"ATMY=1001\r"
+	"ATDL=1002\r"
+	"ATWR\r"
+	*/
+	
+	//UART5_CTL_R |= UART_CTL_LBE;
 	
 	// ticks = (CPU ticks/second) * (periods/time unit) / (time units/second)
 	initSYSTICK(CPU_HZ / 1000000 * SYSTICK_US);
 	initTIMER0A(CPU_HZ / 1000 * TIMER0_MS);
 	initTIMER1A(CPU_HZ / 1000 * TIMER1_MS);
 	
-	uartTxPoll(UART0, "=============================\n\r");
-	uartTxPoll(UART0, "ECE315 Lab3  \n\r");
-	uartTxPoll(UART0, "=============================\n\r");
+	//uartTxPoll(UART0, "=============================\n\r");
+	//uartTxPoll(UART0, "ECE315 Lab3  \n\r");
+	//uartTxPoll(UART0, "=============================\n\r");
 	
 	/*while (1) {
 		sprintf(str, "S %d %d %d\n\r", adc0read[0], adc0read[1], adc0read[2]);
 		uartTxPoll(UART0, str);
 	}*/
+	
+	txDataXbUART("+++", 3, true);
+	while (1) {
+		if ((c = rxCharDbgUART(false)) != -1) {
+			txDataDbgUART((char *)&c, 1, true);
+			txDataXbUART((char *)&c, 1, true);
+		}
+		if ((c = rxCharXbUART(false)) != -1) {
+			txDataDbgUART((char *)&c, 1, true);
+		}
+	}
 	
 	while (1) {
 		systickDelay(120);		
@@ -490,17 +481,17 @@ int main(void)
 		sprintf(str, "SPEED: %d TARGET: %d\n\r",
 			motor1.speed,
 			motor1.targ);
-		uartTxPoll(UART0, str);
+		//uartTxPoll(UART0, str);
 		sprintf(str, "		P: %d I: %d --> DELTA: %d PWM: %d\n\r",
 			(motor1.targ - motor1.speed) * Pfactor,
 			motor1.errsum * Ifactor,
 			m1d,
 			motor1.pwm);
-		uartTxPoll(UART0, str);
+		//uartTxPoll(UART0, str);
 	}
 	
 	while (1) {
 		sprintf(str, "S %d %d %d\n\r", urf0.dist, urf1.dist, ir0.dist);
-		uartTxPoll(UART0, str);
+		//uartTxPoll(UART0, str);
 	}
 }
