@@ -1,9 +1,11 @@
 //*****************************************************************************
 //
 //*****************************************************************************
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include "gpio.h"
 #include "lm4f120h5qr.h"
 #include "board_config.h"
 #include "extern.h"
@@ -36,97 +38,17 @@
 
 #define PID_MS 100
 
-//*****************************************************************************
-// TABLES
-//*****************************************************************************
-//NOTE: Top and Bottom of joystick motion is stuck at max value 
-//(ie we cannot get response past 70% of controller forward motion)
-struct jsrange {
-	int bot;
-	int top;
-} jsranges[] = {
-	{0, 30},	// Rev 5 -- When at full reverse position fluxuates up to 20
-	{3, 500},	// Rev 4 -- Increase very quickly
-	{420, 1100}, // Rev 3
-	{980, 1450},	// Rev 2
-	{1400, 2028},	// Rev 1
-	{2000, 2168}, // Stop
-	{2130, 2650}, // Fwd 1
-	{2550, 3200}, // Fwd 2
-	{3050, 3500}, // Fwd 3
-	{3600, 4094}, // Fwd 4
-	{4093, 4096} // Fwd 5
-};
-
 enum PIDparams {
 	Pfactor = 60,
 	Ifactor = 5,
 	PidNorm = 2000
 };
 
-
-//*****************************************************************************
-// GLOBALS
-//*****************************************************************************
-volatile struct Navigation {
-	// current location
-	int32_t x, y, theta;
-	// target location
-	int32_t tx, ty, ttheta;
-	// target speed
-	uint32_t speed;
-} nav = {0, 0, 0, 0, 0, 0, 0};
-
-volatile struct MotorData {
-	// PWM param
-	int16_t pwm;
-	
-	// control params
-	int32_t targ;
-	int32_t speed;
-	int32_t errsum;
-} motor0 = {0, -500, 0, 0}, motor1 = {0, -500, 0, 0};
-
-volatile struct Encoder {
-	int32_t odo;
-	uint8_t pos;
-} enc0 = {0, 0}, enc1 = {0, 0};
-
-volatile struct URFdata {
-	uint32_t s;
-	uint32_t e;
-	
-	uint32_t dist;
-} urf0 = {0, 0, 9999}, urf1 = {0, 0, 9999};
-
-volatile struct IRdata {
-	uint32_t dist;
-} ir0 = {0};
-
-volatile struct joystick {
-	int x;
-	int y;
-	int press;
-	int release;
-} jstick = {5, 5, 0, 0};
-
-volatile uint16_t adc0read[3];
-uint32_t systick_delay = 0;
-
-// inverse grey code map
-char invgrey[] = {0, 1, 3, 2};
-
-//*****************************************************************************
-// LIBRARY FUNCTIONS
-//*****************************************************************************
-extern void PLL_Init(void);
-extern bool initializeGPIOPort(uint32_t base, GPIO_CONFIG * init);
-extern void DisableInterrupts(void);
-extern void EnableInterrupts(void);
-
+static volatile uint32_t systickdelay = 0;
+static volatile char isrobot;
 
 void resetEncs(void)
-{	
+{
 	DisableInterrupts();
 	enc0.odo = enc1.odo = 0;
 	EnableInterrupts();
@@ -136,24 +58,116 @@ void handlePS2(void)
 {
 	uint16_t t;
 	static uint16_t debounce = 0;
-
+	
 	debounce = (debounce << 1) | (GPIO_PORTB_DATA_R & PB1_PS2_BUTTON ? 1 : 0);
 	if (debounce == 0x8000)
-		jstick.press = 1;
+		jstick0.press = 1;
 	else if (debounce == 0x7FFF)
-		jstick.release = 1;
+		jstick0.release = 1;
 	
 	t = adc0read[0];
-	if (t < jsranges[jstick.y].bot)
-		jstick.y--;
-	else if (t > jsranges[jstick.y].top)
-		jstick.y++;
+	if (t < jsranges[jstick0.y].bot)
+		jstick0.y--;
+	else if (t > jsranges[jstick0.y].top)
+		jstick0.y++;
 	
 	t = adc0read[2];
-	if (t < jsranges[jstick.x].bot)
-		jstick.x--;
-	else if (t > jsranges[jstick.x].top)
-		jstick.x++;
+	if (t < jsranges[jstick0.x].bot)
+		jstick0.x--;
+	else if (t > jsranges[jstick0.x].top)
+		jstick0.x++;
+}
+
+void txPS2Struct(void)
+{
+	char *p;
+	
+	txXbUART("\x02", true);	// send STX
+	for (p = (char *)&jstick0; p < (char *)(&jstick0 + 1); p++) {
+		if (*p == '\x17')
+			txXbUART("\x17", true);	// stuff ETB
+		txDataXbUART(p, 1, true);
+	}
+	txXbUART("\x17", true);		// send ETB
+}
+
+/*void initXb(bool flipdlmy)
+{
+	int16_t r;
+	
+	txDbgUART("begin init\r\n", true);
+	
+	txXbUART("+++\r", true);
+	while ((r = rxCharXbUART(true)) != 'K') {
+		txDataDbgUART((char *)&r, 1, true);
+	}
+	txDbgUART("got +++ OK\r\n", true);
+	
+	txXbUART("ATCH=10\r\n", true);
+	while ((r = rxCharXbUART(false)) != 'K');
+	txDbgUART("got ATCH OK\r\n", true);
+	
+	txXbUART("ATID=1000\r\n", true);
+	while ((r = rxCharXbUART(false)) != 'K');
+	txXbUART(flipdlmy ? "ATDL=1001\r\n" : "ATDL=1001\r\n", true);
+	while ((r = rxCharXbUART(false)) != 'K');
+	txXbUART(!flipdlmy ? "ATDL=1001\r\n" : "ATDL=1001\r\n", true);
+	while ((r = rxCharXbUART(false)) != 'K');
+	//txXbUART("ATWR\r\n", true);
+	//while ((r = rxCharXbUART(false)) != 'K');
+	txXbUART("ATSR\r\n", true);
+	while ((r = rxCharXbUART(false)) != 'K');
+}*/
+
+void rxPS2Struct(void)
+{
+	static struct JoystickData shadow;
+	static char *p = 0;
+	static char gotETB = 0;
+	char *q;
+	int16_t r;
+	
+	// read all available data
+	while ((r = rxCharXbUART(false)) != -1) {
+		// on 1st ETB, set ETB flag for next iteration
+		if (r == '\x17' && !gotETB) {
+			gotETB = 1;
+			continue;
+		}
+		
+		// if '\x17' follows an ETB, it was a stuffing byte
+		if (r == '\x17' && gotETB)
+			gotETB = 0;
+		
+		// end of valid packet
+		if (gotETB && p == (char *)(&shadow + 1)) {
+			DisableInterrupts();
+			p = (char *)&shadow;
+			q = (char *)&jstick0;
+			while (p < (char *)(&shadow + 1))
+				*q++ = *p++;
+			EnableInterrupts();
+		}
+		
+		// end of any packet
+		if (gotETB || p >= (char *)(&shadow + 1)) {
+			gotETB = 0;
+			p = 0;
+		}
+		
+		// new packet begin on STX
+		if (!p && r == '\x02') {
+			p = (char *)&shadow;
+			continue;
+		}
+		
+		// wait for STX
+		if (!p)
+			continue;
+		
+		
+		*p++ = r;
+	}
 }
 
 void ADC0IntHandler(void)
@@ -204,7 +218,7 @@ void handleMotors(void)
 	/* handle PID stuff every PID_MS milliseconds */
 	if (!c) {
 		// update position
-		nav.theta += (enc0.odo - enc1.odo) / (360 * 232);
+		//nav.theta += (enc0.odo - enc1.odo) / (360 * 232);
 		
 		// speed = dist * 1 / time
 		motor0.speed = enc0.odo * 1000 / PID_MS;
@@ -339,9 +353,9 @@ void initSYSTICK(uint32_t count)
 void systickDelay(int ms)
 {
 	DisableInterrupts();
-	systick_delay = 0;
+	systickdelay = 0;
 	EnableInterrupts();
-	while (systick_delay < ms * 1000000 / 1000 / SYSTICK_US);
+	while (systickdelay < ms * 1000000 / 1000 / SYSTICK_US);
 }
 
 void SYSTICKIntHandler(void)
@@ -349,13 +363,11 @@ void SYSTICKIntHandler(void)
 	char str[512];
 	
 	DisableInterrupts();
-	systick_delay++;
+	systickdelay++;
 	EnableInterrupts();
 	
 	handleMotors();
 	handleEncoders();
-	
-	//handlePS2();
 }
 
 void initTIMER0A(uint32_t count)
@@ -423,8 +435,7 @@ void TIMER1AIntHandler(void)
 int main(void)
 {
 	char str[255];
-	int32_t m1d;
-	int c;
+	int16_t r;
 	
 	// Initialize the PLLs so the the main CPU frequency is 80MHz
 	PLL_Init();
@@ -439,15 +450,6 @@ int main(void)
 	initADC();
 	initDbgUART(9600);
 	initXbUART(9600);
-	/*txDbgUART("test\r\n", true);
-	"+++\r"
-	"ATCH=10\r"
-	"ATID=1000\r"
-	"ATMY=1001\r"
-	"ATDL=1002\r"
-	"ATWR\r"
-	*/
-	
 	//UART5_CTL_R |= UART_CTL_LBE;
 	
 	// ticks = (CPU ticks/second) * (periods/time unit) / (time units/second)
@@ -455,43 +457,26 @@ int main(void)
 	initTIMER0A(CPU_HZ / 1000 * TIMER0_MS);
 	initTIMER1A(CPU_HZ / 1000 * TIMER1_MS);
 	
-	//uartTxPoll(UART0, "=============================\n\r");
-	//uartTxPoll(UART0, "ECE315 Lab3  \n\r");
-	//uartTxPoll(UART0, "=============================\n\r");
-	
-	/*while (1) {
-		sprintf(str, "S %d %d %d\n\r", adc0read[0], adc0read[1], adc0read[2]);
-		uartTxPoll(UART0, str);
-	}*/
-	
-	txDataXbUART("+++", 3, true);
-	while (1) {
-		if ((c = rxCharDbgUART(false)) != -1) {
-			txDataDbgUART((char *)&c, 1, true);
-			txDataXbUART((char *)&c, 1, true);
-		}
-		if ((c = rxCharXbUART(false)) != -1) {
-			txDataDbgUART((char *)&c, 1, true);
-		}
+	isrobot = 0;
+
+	while (isrobot) {
+		systickDelay(100);
+		rxPS2Struct();
+		
+		sprintf(str, "JS %d %d\n\r", jstick0.x, jstick0.y);
+		txDbgUART(str, true);
+		
+		txDbgUART(".\r\n", true);
 	}
 	
-	while (1) {
-		systickDelay(120);		
-		m1d = ((motor1.targ - motor1.speed)* Pfactor + motor1.errsum * Ifactor) / PidNorm;
-		sprintf(str, "SPEED: %d TARGET: %d\n\r",
-			motor1.speed,
-			motor1.targ);
-		//uartTxPoll(UART0, str);
-		sprintf(str, "		P: %d I: %d --> DELTA: %d PWM: %d\n\r",
-			(motor1.targ - motor1.speed) * Pfactor,
-			motor1.errsum * Ifactor,
-			m1d,
-			motor1.pwm);
-		//uartTxPoll(UART0, str);
+	while (!isrobot) {
+		systickDelay(100);
+		handlePS2();
+		txPS2Struct();
+
+		sprintf(str, "JS %d %d\n\r", jstick0.x, jstick0.y);
+		txDbgUART(str, true);
 	}
 	
-	while (1) {
-		sprintf(str, "S %d %d %d\n\r", urf0.dist, urf1.dist, ir0.dist);
-		//uartTxPoll(UART0, str);
-	}
+	while (1);
 }

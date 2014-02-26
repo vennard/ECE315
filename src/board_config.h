@@ -5,7 +5,6 @@
 #include <stdio.h>
 #include "lm4f120h5qr.h"
 #include "inc/hw_types.h"
-#include "gpio.h"
 
 /******************************************************************************
  * Defines
