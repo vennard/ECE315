@@ -48,14 +48,14 @@ extern struct JsRange {
 // uart.c
 //****
 bool initDbgUART(uint32_t baudrate);
-int txDbgUART(char *d, bool block);
-int txDataDbgUART(char *d, uint32_t n, bool block);
-int rxCharDbgUART(bool block);
+int txDbgUART(char *d);
+int txDataDbgUART(char *d, uint32_t n);
+int rxCharDbgUART(void);
 
 bool initXbUART(uint32_t baudrate);
-int txXbUART(char *d, bool block);
-int txDataXbUART(char *d, uint32_t n, bool block);
-int rxCharXbUART(bool block);
+int txXbUART(char *d);
+int txDataXbUART(char *d, uint32_t n);
+int rxCharXbUART(void);
 
 
 //****

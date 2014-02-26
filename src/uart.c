@@ -118,13 +118,13 @@ void UART5IntHandler()
 // TX
 //*****************************************************************************
 static int _txUART(volatile UART_PERIPH * p, volatile struct UartBuf *tx,
-		   char *d, bool block)
+		   char *d)
 {
 
 	char *d0 = d;
 
-	// fill SW buffer. If blocking, make sure everything gets loaded.
-	while (block && *d) {
+	// load all data or fill SW buffer
+	while (*d) {
 		DisableInterrupts();
 		while (*d && (tx->t + 1) % UART_BUFSIZ != tx->h) {
 			tx->buf[tx->t] = *d++;
@@ -146,25 +146,19 @@ static int _txUART(volatile UART_PERIPH * p, volatile struct UartBuf *tx,
 	return d - d0;
 }
 
-int txDbgUART(char *d, bool block)
-{
-	return _txUART((UART_PERIPH *) UART0, &u0tx, d, block);
-}
-
-int txXbUART(char *d, bool block)
-{
-	return _txUART((UART_PERIPH *) UART5, &u5tx, d, block);
-}
+int txDbgUART(char *d)
+	{return _txUART((UART_PERIPH *) UART0, &u0tx, d);}
+int txXbUART(char *d)
+	{return _txUART((UART_PERIPH *) UART5, &u5tx, d);}
 
 
 static int _txDataUART(volatile UART_PERIPH * p,
-		       volatile struct UartBuf *tx, char *d, uint32_t n,
-		       bool block)
+		       volatile struct UartBuf *tx, char *d, uint32_t n)
 {
 	char *d0 = d;
 
-	// fill SW buffer. If blocking, make sure everything gets loaded.
-	while (block && n) {
+	// load all dato a fill SW buffer
+	while (n) {
 		DisableInterrupts();
 		while (n && (tx->t + 1) % UART_BUFSIZ != tx->h) {
 			tx->buf[tx->t] = *d++;
@@ -187,14 +181,14 @@ static int _txDataUART(volatile UART_PERIPH * p,
 	return d - d0;
 }
 
-int txDataDbgUART(char *d, uint32_t n, bool block)
+int txDataDbgUART(char *d, uint32_t n)
 {
-	return _txDataUART((UART_PERIPH *) UART0, &u0tx, d, n, block);
+	return _txDataUART((UART_PERIPH *) UART0, &u0tx, d, n);
 }
 
-int txDataXbUART(char *d, uint32_t n, bool block)
+int txDataXbUART(char *d, uint32_t n)
 {
-	return _txDataUART((UART_PERIPH *) UART5, &u5tx, d, n, block);
+	return _txDataUART((UART_PERIPH *) UART5, &u5tx, d, n);
 }
 
 
@@ -202,41 +196,34 @@ int txDataXbUART(char *d, uint32_t n, bool block)
 // RX
 //*****************************************************************************
 static int _rxCharUART(volatile UART_PERIPH * p,
-		       volatile struct UartBuf *rx, bool block)
+		       volatile struct UartBuf *rx)
 {
 	int rv = -1;
 
-	do {
-		DisableInterrupts();
-		//check on SW FIFO
-		if (rx->h != rx->t) {
-			rv = rx->buf[rx->h];
-			rx->h = (rx->h + 1) % UART_BUFSIZ;
-			break;
-		}
-		//check on HW FIFO
-		if (!(p->Flag & UART_FR_RXFE)) {
-			rv = p->Data;
-			break;
-		}
-		EnableInterrupts();
-	} while (block);
+	DisableInterrupts();
+	//check on SW FIFO
+	if (rx->h != rx->t) {
+		rv = rx->buf[rx->h];
+		rx->h = (rx->h + 1) % UART_BUFSIZ;
+	}
+	//check on HW FIFO
+	if (!(p->Flag & UART_FR_RXFE)) {
+		rv = p->Data;
+	}
 	EnableInterrupts();
 
 	return rv;
 }
 
-int rxCharDbgUART(bool block)
+int rxCharDbgUART(void)
 {
-	return _rxCharUART((UART_PERIPH *) UART0, &u0rx, block);
+	return _rxCharUART((UART_PERIPH *) UART0, &u0rx);
 }
 
-int rxCharXbUART(bool block)
+int rxCharXbUART(void)
 {
-	return _rxCharUART((UART_PERIPH *) UART5, &u5rx, block);
+	return _rxCharUART((UART_PERIPH *) UART5, &u5rx);
 }
-
-
 
 
 //*****************************************************************************

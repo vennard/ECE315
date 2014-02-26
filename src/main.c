@@ -82,41 +82,41 @@ void txPS2Struct(void)
 {
 	char *p;
 	
-	txXbUART("\x02", true);	// send STX
+	txXbUART("\x02");	// send STX
 	for (p = (char *)&jstick0; p < (char *)(&jstick0 + 1); p++) {
 		if (*p == '\x17')
-			txXbUART("\x17", true);	// stuff ETB
-		txDataXbUART(p, 1, true);
+			txXbUART("\x17");	// stuff ETB
+		txDataXbUART(p, 1);
 	}
-	txXbUART("\x17", true);		// send ETB
+	txXbUART("\x17");		// send ETB
 }
 
 /*void initXb(bool flipdlmy)
 {
 	int16_t r;
 	
-	txDbgUART("begin init\r\n", true);
+	txDbgUART("begin init\r\n");
 	
-	txXbUART("+++\r", true);
-	while ((r = rxCharXbUART(true)) != 'K') {
-		txDataDbgUART((char *)&r, 1, true);
+	txXbUART("+++\r");
+	while ((r = rxCharXbUART()) != 'K') {
+		txDataDbgUART((char *)&r, 1);
 	}
-	txDbgUART("got +++ OK\r\n", true);
+	txDbgUART("got +++ OK\r\n");
 	
-	txXbUART("ATCH=10\r\n", true);
-	while ((r = rxCharXbUART(false)) != 'K');
-	txDbgUART("got ATCH OK\r\n", true);
+	txXbUART("ATCH=10\r\n");
+	while ((r = rxCharXbUART()) != 'K');
+	txDbgUART("got ATCH OK\r\n");
 	
-	txXbUART("ATID=1000\r\n", true);
-	while ((r = rxCharXbUART(false)) != 'K');
-	txXbUART(flipdlmy ? "ATDL=1001\r\n" : "ATDL=1001\r\n", true);
-	while ((r = rxCharXbUART(false)) != 'K');
-	txXbUART(!flipdlmy ? "ATDL=1001\r\n" : "ATDL=1001\r\n", true);
-	while ((r = rxCharXbUART(false)) != 'K');
-	//txXbUART("ATWR\r\n", true);
-	//while ((r = rxCharXbUART(false)) != 'K');
-	txXbUART("ATSR\r\n", true);
-	while ((r = rxCharXbUART(false)) != 'K');
+	txXbUART("ATID=1000\r\n");
+	while ((r = rxCharXbUART()) != 'K');
+	txXbUART(flipdlmy ? "ATDL=1001\r\n" : "ATDL=1001\r\n");
+	while ((r = rxCharXbUART()) != 'K');
+	txXbUART(!flipdlmy ? "ATDL=1001\r\n" : "ATDL=1001\r\n");
+	while ((r = rxCharXbUART()) != 'K');
+	//txXbUART("ATWR\r\n");
+	//while ((r = rxCharXbUART()) != 'K');
+	txXbUART("ATSR\r\n");
+	while ((r = rxCharXbUART()) != 'K');
 }*/
 
 void rxPS2Struct(void)
@@ -128,7 +128,7 @@ void rxPS2Struct(void)
 	int16_t r;
 	
 	// read all available data
-	while ((r = rxCharXbUART(false)) != -1) {
+	while ((r = rxCharXbUART()) != -1) {
 		// on 1st ETB, set ETB flag for next iteration
 		if (r == '\x17' && !gotETB) {
 			gotETB = 1;
@@ -457,25 +457,25 @@ int main(void)
 	initTIMER0A(CPU_HZ / 1000 * TIMER0_MS);
 	initTIMER1A(CPU_HZ / 1000 * TIMER1_MS);
 	
-	isrobot = 0;
+	isrobot = 1;
 
 	while (isrobot) {
-		systickDelay(100);
+		systickDelay(1000);
 		rxPS2Struct();
 		
 		sprintf(str, "JS %d %d\n\r", jstick0.x, jstick0.y);
-		txDbgUART(str, true);
+		txDbgUART(str);
 		
-		txDbgUART(".\r\n", true);
+		txDbgUART(".\r\n");
 	}
 	
 	while (!isrobot) {
-		systickDelay(100);
+		systickDelay(1000);
 		handlePS2();
 		txPS2Struct();
 
 		sprintf(str, "JS %d %d\n\r", jstick0.x, jstick0.y);
-		txDbgUART(str, true);
+		txDbgUART(str);
 	}
 	
 	while (1);
