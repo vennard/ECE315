@@ -1,0 +1,10 @@
+ECE 315 Lab 4
+John Vennard & Cliff Buchanan
+
+1. We started the lab by setting up the UARTs, this was relatively easy because we had work from our previous 353 class to reference. 
+2. Once we had both the UARTs up and tested (using the local PC) we moved on to setting up the XBee wireless units.
+3. Setting up the XBee wireless units was a little tricky as we didn't immediately realize that the input timing was very important to getting a response from the XBees4. Once we got a response we configured both XBees with the correct configuration numbers and then started testing them. 
+5. We tested the XBees using to seperate PC's and verified that they were configured correctly by typing back and forth across them.
+6. Once we had the XBees up and running the next major step was to setup communication protocols. We used a framing system to correctly transfer the data.
+7. With the communication system in place we setup a basic drive command loop that reads from the controller and responds accordingly.
+8. The only problems we encountered with this is slight noise at rest coming from our feedback (PI) control loop. This is due to the fact we have not yet fully included the motor positions into the control loop.
