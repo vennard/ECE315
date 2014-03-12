@@ -76,6 +76,9 @@ void handlePS2(void)
 		jstick0.x--;
 	else if (t > jsranges[jstick0.x].top)
 		jstick0.x++;
+	
+	//jstick0.y = adc0read[0];
+	//jstick0.x = adc0read[2];
 }
 
 void txPS2Struct(void)
@@ -223,6 +226,9 @@ void handleMotors(void)
 		// speed = dist * 1 / time
 		motor0.speed = enc0.odo * 1000 / PID_MS;
 		motor1.speed = enc1.odo * 1000 / PID_MS;
+		
+		motor0.errsum >>= 1;
+		motor1.errsum >>= 1;
 		
 		motor0.errsum += (motor0.targ - motor0.speed) * 1000 / PID_MS;
 		motor1.errsum += (motor1.targ - motor1.speed) * 1000 / PID_MS;
@@ -432,10 +438,20 @@ void TIMER1AIntHandler(void)
 	TIMER1_ICR_R |= TIMER_ICR_TATOCINT;
 }
 
+void drive(void)
+{
+ int speed_r = jstick0.y - jstick0.x; //assumes max speed is going to be x + y = 10
+ int speed_l = jstick0.y + jstick0.x - 10; //both range from -5 to 5
+
+ motor0.targ = speed_l * 150; //assumes max target speed is 500
+ motor1.targ = speed_r * 150;
+}
+
+
 int main(void)
 {
 	char str[255];
-	int16_t r;
+	int16_t i;
 	
 	// Initialize the PLLs so the the main CPU frequency is 80MHz
 	PLL_Init();
@@ -460,17 +476,20 @@ int main(void)
 	isrobot = 1;
 
 	while (isrobot) {
-		systickDelay(1000);
-		rxPS2Struct();
+		for (i = 10; i--;) {
+			systickDelay(100);
+			rxPS2Struct();
+			drive();
+		}
 		
+		sprintf(str, "MOTOR SPEEDS %d %d\n\r", motor0.targ, motor1.targ);
+		txDbgUART(str);
 		sprintf(str, "JS %d %d\n\r", jstick0.x, jstick0.y);
 		txDbgUART(str);
-		
-		txDbgUART(".\r\n");
 	}
 	
 	while (!isrobot) {
-		systickDelay(1000);
+		systickDelay(100);
 		handlePS2();
 		txPS2Struct();
 

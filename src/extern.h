@@ -30,10 +30,10 @@ extern volatile struct IrData {
 	uint32_t dist;
 } ir0;
 extern volatile struct JoystickData {
-	int x;
-	int y;
-	int press;
-	int release;
+	int32_t x;
+	int32_t y;
+	char press;
+	char release;
 } jstick0; 
 extern volatile uint16_t adc0read[3];
 // tables
@@ -42,6 +42,10 @@ extern struct JsRange {
 	int bot;
 	int top;
 } jsranges[];
+extern volatile struct NavData {
+	int left;
+	int right;
+} nav0; 
 
 
 //****
