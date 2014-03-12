@@ -206,10 +206,6 @@ static int _rxCharUART(volatile UART_PERIPH * p,
 		rv = rx->buf[rx->h];
 		rx->h = (rx->h + 1) % UART_BUFSIZ;
 	}
-	//check on HW FIFO
-	if (!(p->Flag & UART_FR_RXFE)) {
-		rv = p->Data;
-	}
 	EnableInterrupts();
 
 	return rv;
