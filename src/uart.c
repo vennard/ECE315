@@ -124,14 +124,12 @@ static int _txUART(volatile UART_PERIPH * p, volatile struct UartBuf *tx,
 	char *d0 = d;
 
 	// load all data or fill SW buffer
-	while (*d) {
-		DisableInterrupts();
-		while (*d && (tx->t + 1) % UART_BUFSIZ != tx->h) {
-			tx->buf[tx->t] = *d++;
-			tx->t = (tx->t + 1) % UART_BUFSIZ;
-		}
-		EnableInterrupts();
+	DisableInterrupts();
+	while (*d && (tx->t + 1) % UART_BUFSIZ != tx->h) {
+		tx->buf[tx->t] = *d++;
+		tx->t = (tx->t + 1) % UART_BUFSIZ;
 	}
+	EnableInterrupts();
 
 	// Ensure HW buffer is primed and interrupts are enabled
 	DisableInterrupts();
@@ -157,16 +155,14 @@ static int _txDataUART(volatile UART_PERIPH * p,
 {
 	char *d0 = d;
 
-	// load all dato a fill SW buffer
-	while (n) {
-		DisableInterrupts();
-		while (n && (tx->t + 1) % UART_BUFSIZ != tx->h) {
-			tx->buf[tx->t] = *d++;
-			tx->t = (tx->t + 1) % UART_BUFSIZ;
-			n--;
-		}
-		EnableInterrupts();
+	// load all data or fill SW buffer
+	DisableInterrupts();
+	while (n && (tx->t + 1) % UART_BUFSIZ != tx->h) {
+		tx->buf[tx->t] = *d++;
+		tx->t = (tx->t + 1) % UART_BUFSIZ;
+		n--;
 	}
+	EnableInterrupts();
 
 	// Ensure HW buffer is primed and interrupts are enabled
 	DisableInterrupts();

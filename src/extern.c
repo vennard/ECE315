@@ -5,7 +5,7 @@
 
 volatile struct MotorData motor0 = {0, 0, 0, 0}, motor1 = {0, 0, 0, 0};
 volatile struct EncoderData enc0 = {0, 0}, enc1 = {0, 0};
-volatile struct UrfData urf0 = {0, 0, 9999}, urf1 = {0, 0, 9999};
+volatile struct UrfData urf0 = {0, 0, 50}, urf1 = {0, 0, 50};
 volatile struct IrData ir0 = {0};
 volatile struct JoystickData jstick0 = {5, 5, 0, 0};
 volatile uint16_t adc0read[3] = {0, 0, 0};

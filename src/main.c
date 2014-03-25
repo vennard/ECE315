@@ -23,25 +23,26 @@
 #define PORTE   0x40024000
 #define PORTF   0x40025000
 
-#define NUM_SAMPLES 10
 #define UTICKS 232
 #define PWM_WIDTH 100
+#define NUM_SAMPLES 3
+#define TEN_FEET_TICKS 3200
 
 // 80MHz = 80000000Hz
 #define CPU_HZ 80000000
 // 1 / (200 uS) = 5kHz
 #define SYSTICK_US 200
 // 1 / (25 mS) = 40 Hz
-#define TIMER0_MS 25
+#define TIMER0_MS 4
 // 1 / (50 mS) = 20 Hz
 #define TIMER1_MS 50
 
 #define PID_MS 100
 
 enum PIDparams {
-	Pfactor = 60,
-	Ifactor = 5,
-	PidNorm = 2000
+	Pfactor = 500,
+	Ifactor = 0,
+	PidNorm = 1000
 };
 
 static volatile uint32_t systickdelay = 0;
@@ -51,6 +52,15 @@ void resetEncs(void)
 {
 	DisableInterrupts();
 	enc0.odo = enc1.odo = 0;
+	EnableInterrupts();
+}
+
+void resetNav(void)
+{
+	DisableInterrupts();
+	nav0.left = nav0.right = 0;
+	motor0.targ =  motor1.targ = 0;
+	motor0.errsum = motor1.errsum = 0;
 	EnableInterrupts();
 }
 
@@ -77,8 +87,8 @@ void handlePS2(void)
 	else if (t > jsranges[jstick0.x].top)
 		jstick0.x++;
 	
-	//jstick0.y = adc0read[0];
-	//jstick0.x = adc0read[2];
+	//jstick0.y = adc0read[0] - (0xFFF >> 1);
+	//jstick0.x = adc0read[2] - (0xFFF >> 1);
 }
 
 void txPS2Struct(void)
@@ -93,34 +103,6 @@ void txPS2Struct(void)
 	}
 	txXbUART("\x17");		// send ETB
 }
-
-/*void initXb(bool flipdlmy)
-{
-	int16_t r;
-	
-	txDbgUART("begin init\r\n");
-	
-	txXbUART("+++\r");
-	while ((r = rxCharXbUART()) != 'K') {
-		txDataDbgUART((char *)&r, 1);
-	}
-	txDbgUART("got +++ OK\r\n");
-	
-	txXbUART("ATCH=10\r\n");
-	while ((r = rxCharXbUART()) != 'K');
-	txDbgUART("got ATCH OK\r\n");
-	
-	txXbUART("ATID=1000\r\n");
-	while ((r = rxCharXbUART()) != 'K');
-	txXbUART(flipdlmy ? "ATDL=1001\r\n" : "ATDL=1001\r\n");
-	while ((r = rxCharXbUART()) != 'K');
-	txXbUART(!flipdlmy ? "ATDL=1001\r\n" : "ATDL=1001\r\n");
-	while ((r = rxCharXbUART()) != 'K');
-	//txXbUART("ATWR\r\n");
-	//while ((r = rxCharXbUART()) != 'K');
-	txXbUART("ATSR\r\n");
-	while ((r = rxCharXbUART()) != 'K');
-}*/
 
 void rxPS2Struct(void)
 {
@@ -223,22 +205,23 @@ void handleMotors(void)
 		// update position
 		//nav.theta += (enc0.odo - enc1.odo) / (360 * 232);
 		
-		// speed = dist * 1 / time
-		motor0.speed = enc0.odo * 1000 / PID_MS;
-		motor1.speed = enc1.odo * 1000 / PID_MS;
+		motor0.targ -= enc0.odo;
+		motor1.targ -= enc1.odo;
 		
-		motor0.errsum >>= 1;
-		motor1.errsum >>= 1;
+		motor0.errsum += motor0.targ * 1000 / PID_MS;
+		motor1.errsum += motor1.targ * 1000 / PID_MS;
 		
-		motor0.errsum += (motor0.targ - motor0.speed) * 1000 / PID_MS;
-		motor1.errsum += (motor1.targ - motor1.speed) * 1000 / PID_MS;
-	
-		m0d = ((motor0.targ - motor0.speed) * Pfactor + motor0.errsum * Ifactor) / PidNorm;
-		m1d = ((motor1.targ - motor1.speed) * Pfactor + motor1.errsum * Ifactor) / PidNorm;
+		m0d = (motor0.targ * Pfactor + motor0.errsum * Ifactor) / PidNorm;
+		m1d = (motor1.targ * Pfactor + motor1.errsum * Ifactor) / PidNorm;
 
 		motor0.pwm = CLIP(-PWM_WIDTH, m0d, PWM_WIDTH);
 		motor1.pwm = CLIP(-PWM_WIDTH, m1d, PWM_WIDTH);
 		
+		nav0.left += enc0.odo;
+		nav0.right += enc1.odo;
+		
+		motor0.targ += motor0.speed * PID_MS / 1000;
+		motor1.targ += motor1.speed * PID_MS / 1000;
 		resetEncs();
 	}
 
@@ -288,22 +271,18 @@ void handleURFs(void)
 {
 	static char isLo = 0;
 	
-	static int pings = 0;
-	static int u0n = 0, u1n = 0;
-	static uint32_t u0sum = 0.0, u1sum = 0.0;
-	
 	// Ensure GPIO port E interrupts are enabled
 	NVIC_EN0_R |= NVIC_EN0_INT4;
 	
 	if (!isLo) {
 		DisableInterrupts();
 		if (urf0.s && urf0.e) {
-			u0sum += urf0.e - urf0.s;
-			u0n++;
+			urf0.dist += (urf0.e - urf0.s) / (80 * 58);
+			urf0.dist >>= 1;
 		}
 		if (urf1.s && urf1.e) {
-			u1sum += urf1.e - urf1.s;
-			u1n++;
+			urf1.dist += (urf1.e - urf1.s) / (80 * 58);
+			urf1.dist >>= 1;
 		}
 		urf0.s = urf0.e = urf1.s = urf1.e = 0;
 		EnableInterrupts();
@@ -311,24 +290,12 @@ void handleURFs(void)
 		//start a new ping
 		GPIO_PORTB_DATA_R &= ~PB0_TRIG_0;
 		GPIO_PORTE_DATA_R &= ~PE2_TRIG_1;
-		
-		pings++;
 	} else {
 		//raise the line in prep for next ping
 		GPIO_PORTB_DATA_R |= PB0_TRIG_0;
 		GPIO_PORTE_DATA_R |= PE2_TRIG_1;
 	}
 	isLo = !isLo;
-	
-	if (pings >= NUM_SAMPLES) {
-		DisableInterrupts();
-		urf0.dist = u0n ? u0sum / (u0n * 80 * 58) : 0;
-		urf1.dist = u1n ? u1sum / (u1n * 80 * 58) : 0;
-		EnableInterrupts();
-		
-		u0n = u0sum = u1n = u1sum = 0;
-		pings = 0;
-	}
 }
 
 void handleIR()
@@ -440,13 +407,122 @@ void TIMER1AIntHandler(void)
 
 void drive(void)
 {
- int speed_r = jstick0.y - jstick0.x; //assumes max speed is going to be x + y = 10
- int speed_l = jstick0.y + jstick0.x - 10; //both range from -5 to 5
-
- motor0.targ = speed_l * 150; //assumes max target speed is 500
- motor1.targ = speed_r * 150;
+	int dif = jstick0.x - 5;
+	int com = jstick0.y - 5;
+	if (dif < 1 && dif > -1) {
+		motor0.speed = com * 100;
+		motor1.speed = com * 100;
+	} else {
+		motor0.speed = 0 - dif * 42;
+		motor1.speed = 0 + dif * 42;
+	}
 }
 
+/* Decide if forward motion should be disallowed */
+void emergencyStop(void)
+{
+	// if forward motion isn't happening, then just don't mess around with anything
+	if (motor0.speed + motor1.speed <= 0)
+		return;
+	
+	// if no violation, OK
+	if (urf0.dist >= 20 && urf1.dist >= 20)
+		return;
+	
+	// keep the robot still
+	motor0.speed = 0;
+	motor1.speed = 0;
+}
+
+void foo()
+{
+	uint8_t a = 1;
+	uint8_t b = 1;
+	uint8_t c = 1;
+	uint8_t d = 1;
+	uint8_t e = 1;
+	uint8_t f = 1;
+}
+
+void bar()
+{
+	uint8_t a = 1;
+	uint8_t b = 1;
+	uint8_t c = 1;
+	uint8_t d = 1;
+	uint8_t e = 1;
+}
+
+void foobar()
+{
+	uint8_t a;
+	uint8_t b;
+	uint8_t c;
+	uint8_t d;
+	uint8_t e;
+	uint8_t f;
+}
+
+void runrobot()
+{
+	int i;
+	char str[255];
+	
+	// joystick control
+	while (!jstick0.press) {
+		for (i = 10; i--;) {
+			systickDelay(20);
+			rxPS2Struct();
+			//handlePS2();
+			drive();
+			emergencyStop();
+		}
+		
+		sprintf(str, "MOTOR SPEEDS %d %d\n\r", motor0.speed, motor1.speed);
+		txDbgUART(str);
+		//sprintf(str, "MOTOR ERR %d %d\n\r", motor0.errsum, motor1.errsum);
+		//txDbgUART(str);
+// 		sprintf(str, "MOTOR TARG %d %d\n\r", motor0.targ, motor1.targ);
+// 		txDbgUART(str);
+// 		sprintf(str, "JS %d %d\n\r", jstick0.x, jstick0.y);
+// 		txDbgUART(str);
+		//sprintf(str, "URF %d %d\n\r", urf0.dist, urf1.dist);
+		//txDbgUART(str);
+		//sprintf(str, "MOTOR0 %d %d\n\r", motor0.errsum, motor0.speed);
+		//txDbgUART(str);
+	}
+	
+	// full stop
+	motor0.speed = 0;
+	motor1.speed = 0;
+	resetNav();
+	systickDelay(1000);
+	resetNav();
+	
+	// move 10 ft
+	motor0.speed = 288;
+	motor1.speed = 288;
+	while (nav0.left < TEN_FEET_TICKS && nav0.right < TEN_FEET_TICKS) {
+	}
+	
+	// full stop
+	motor0.speed = 0;
+	motor1.speed = 0;
+}
+
+void runcontroller()
+{
+	char str[255];
+	
+	while (1) {
+		systickDelay(20);
+		handlePS2();
+		txPS2Struct();
+
+		sprintf(str, "JS %d %d\n\r", jstick0.x, jstick0.y);
+		txDbgUART(str);
+	}
+}
 
 int main(void)
 {
@@ -474,28 +550,11 @@ int main(void)
 	initTIMER1A(CPU_HZ / 1000 * TIMER1_MS);
 	
 	isrobot = 1;
-
-	while (isrobot) {
-		for (i = 10; i--;) {
-			systickDelay(100);
-			rxPS2Struct();
-			drive();
-		}
-		
-		sprintf(str, "MOTOR SPEEDS %d %d\n\r", motor0.targ, motor1.targ);
-		txDbgUART(str);
-		sprintf(str, "JS %d %d\n\r", jstick0.x, jstick0.y);
-		txDbgUART(str);
-	}
 	
-	while (!isrobot) {
-		systickDelay(100);
-		handlePS2();
-		txPS2Struct();
-
-		sprintf(str, "JS %d %d\n\r", jstick0.x, jstick0.y);
-		txDbgUART(str);
-	}
+	if (isrobot)
+		runrobot();
+	else
+		runcontroller();
 	
 	while (1);
 }
